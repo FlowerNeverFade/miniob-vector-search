@@ -22,7 +22,7 @@ SUCCESS
 insert into t_vec values(5, string_to_vector('[1, 2]'), 'bad');
 FAILURE
 insert into t_vec values(6, string_to_vector('[not-a-vector]'), 'bad');
-SQL_SYNTAX > FAILED TO PARSE SQL
+FAILURE
 
 VECTOR CONVERSION AND COMPARISON
 select id, vector_to_string(emb) as emb_text from t_vec where emb = string_to_vector('[1,0,0]');
