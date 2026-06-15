@@ -181,10 +181,6 @@ CI 覆盖：
 
 最新状态请以仓库顶部 badge 和 Actions 页面为准：<https://github.com/FlowerNeverFade/miniob-vector-search-backend/actions>
 
-## Contributors 为什么很多
-
-该仓库保留了 MiniOB 上游历史，因此 GitHub Contributors 页面会统计 OceanBase/MiniOB 原项目的大量贡献者。这是 fork/课程实现仓库的正常现象，不代表课程任务由这些贡献者共同完成。课程相关改动可以通过本仓库提交历史和 `test/case/test/vector-search.test` 等新增文件定位。
-
 ## 许可证
 
 本项目继承 MiniOB 的 Mulan PSL v2 许可证。详见 [License](License)。
