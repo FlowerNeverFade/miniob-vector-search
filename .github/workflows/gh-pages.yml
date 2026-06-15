@@ -5,11 +5,8 @@
 name: Deploy mdBook site to Pages
 
 on:
-  # Runs on pushes targeting the default branch
-  push:
-    branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
+  # This upstream documentation deployment is optional for the course fork.
+  # Run it manually after GitHub Pages has been enabled for the repository.
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages

@@ -730,7 +730,9 @@ expression:
     | rel_attr {
       RelAttrSqlNode *node = $1;
       $$ = new UnboundFieldExpr(node->relation_name, node->attribute_name);
-      $$->set_name(token_name(sql_string, &@$));
+      // Keep legacy projection headers stable: SELECT t.c still prints C.
+      // Explicit aliases are applied later by select_expression.
+      $$->set_name(node->attribute_name);
       delete $1;
     }
     | function_expression {
