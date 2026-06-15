@@ -337,7 +337,7 @@ RC LogicalPlanGenerator::create_plan(FilterStmt *filter_stmt, unique_ptr<Logical
 
     if (left->value_type() == AttrType::VECTORS || right->value_type() == AttrType::VECTORS) {
       if (left->value_type() != AttrType::VECTORS || right->value_type() != AttrType::VECTORS ||
-          (filter_unit->comp() != EQUAL_TO && filter_unit->comp() != NOT_EQUAL)) {
+          filter_unit->comp() != EQUAL_TO) {
         LOG_WARN("unsupported vector comparison");
         return RC::UNSUPPORTED;
       }

@@ -28,6 +28,8 @@ VECTOR CONVERSION AND COMPARISON
 select id, vector_to_string(emb) as emb_text from t_vec where emb = string_to_vector('[1,0,0]');
 ID | EMB_TEXT
 1 | [1,0,0]
+select id from t_vec where emb <> string_to_vector('[1,0,0]');
+FAILURE
 select id from t_vec where emb > string_to_vector('[0,0,0]');
 FAILURE
 select id from t_vec where emb = 'x';

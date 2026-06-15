@@ -149,7 +149,7 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
     if (left.attr_type() != AttrType::VECTORS || right.attr_type() != AttrType::VECTORS) {
       return RC::INVALID_ARGUMENT;
     }
-    if (comp_ != EQUAL_TO && comp_ != NOT_EQUAL) {
+    if (comp_ != EQUAL_TO) {
       return RC::UNSUPPORTED;
     }
   }
