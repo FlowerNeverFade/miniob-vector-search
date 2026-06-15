@@ -21,6 +21,21 @@ See the Mulan PSL v2 for more details. */
 using namespace std;
 using namespace common;
 
+static RC normalize_vector_distance(const string &distance, string &normalized)
+{
+  if (0 == strcasecmp(distance.c_str(), "EUCLIDEAN") || 0 == strcasecmp(distance.c_str(), "L2") ||
+      0 == strcasecmp(distance.c_str(), "L2_DISTANCE")) {
+    normalized = "EUCLIDEAN";
+  } else if (0 == strcasecmp(distance.c_str(), "COSINE") || 0 == strcasecmp(distance.c_str(), "COSINE_DISTANCE")) {
+    normalized = "COSINE";
+  } else if (0 == strcasecmp(distance.c_str(), "DOT") || 0 == strcasecmp(distance.c_str(), "INNER_PRODUCT")) {
+    normalized = "DOT";
+  } else {
+    return RC::INVALID_ARGUMENT;
+  }
+  return RC::SUCCESS;
+}
+
 RC CreateIndexStmt::create(Db *db, const CreateIndexSqlNode &create_index, Stmt *&stmt)
 {
   stmt = nullptr;
@@ -53,6 +68,37 @@ RC CreateIndexStmt::create(Db *db, const CreateIndexSqlNode &create_index, Stmt 
     return RC::SCHEMA_INDEX_NAME_REPEAT;
   }
 
-  stmt = new CreateIndexStmt(table, field_meta, create_index.index_name);
+  string vector_type = create_index.vector_type;
+  string distance    = create_index.distance;
+  if (create_index.is_vector) {
+    if (field_meta->type() != AttrType::VECTORS) {
+      LOG_WARN("vector index can only be created on vector field. table=%s, field=%s",
+          table_name, create_index.attribute_name.c_str());
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+    if (0 != strcasecmp(vector_type.c_str(), "ivfflat")) {
+      LOG_WARN("unsupported vector index type. type=%s", vector_type.c_str());
+      return RC::INVALID_ARGUMENT;
+    }
+    if (create_index.lists <= 0 || create_index.probes <= 0) {
+      LOG_WARN("invalid vector index lists/probes. lists=%d, probes=%d", create_index.lists, create_index.probes);
+      return RC::INVALID_ARGUMENT;
+    }
+    RC rc = normalize_vector_distance(distance, distance);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("invalid vector distance method. distance=%s", create_index.distance.c_str());
+      return rc;
+    }
+    vector_type = "ivfflat";
+  }
+
+  stmt = new CreateIndexStmt(table,
+      field_meta,
+      create_index.index_name,
+      create_index.is_vector,
+      vector_type,
+      distance,
+      create_index.lists,
+      create_index.probes);
   return RC::SUCCESS;
 }

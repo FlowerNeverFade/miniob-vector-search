@@ -94,7 +94,14 @@ public:
   RC get_record(const RID &rid, Record &record);
 
   // TODO refactor
-  RC create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name);
+  RC create_index(Trx *trx,
+      const FieldMeta *field_meta,
+      const char *index_name,
+      bool is_vector = false,
+      const char *vector_type = "ivfflat",
+      const char *distance = "EUCLIDEAN",
+      int lists = 245,
+      int probes = 5);
 
   RC get_record_scanner(RecordScanner *&scanner, Trx *trx, ReadWriteMode mode);
 

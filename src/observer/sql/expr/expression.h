@@ -36,6 +36,8 @@ class Tuple;
 enum class ExprType
 {
   NONE,
+  UNBOUND_FUNCTION,
+  FUNCTION,
   STAR,                 ///< 星号，表示所有字段
   UNBOUND_FIELD,        ///< 未绑定的字段，需要在resolver阶段解析为FieldExpr
   UNBOUND_AGGREGATION,  ///< 未绑定的聚合函数，需要在resolver阶段解析为AggregateExpr
@@ -437,6 +439,53 @@ private:
   Type                   arithmetic_type_;
   unique_ptr<Expression> left_;
   unique_ptr<Expression> right_;
+};
+
+class UnboundFunctionExpr : public Expression
+{
+public:
+  UnboundFunctionExpr(const char *function_name, vector<unique_ptr<Expression>> &&children);
+  virtual ~UnboundFunctionExpr() = default;
+
+  ExprType type() const override { return ExprType::UNBOUND_FUNCTION; }
+  unique_ptr<Expression> copy() const override;
+
+  const char *function_name() const { return function_name_.c_str(); }
+  vector<unique_ptr<Expression>> &children() { return children_; }
+
+  RC       get_value(const Tuple &tuple, Value &value) const override { return RC::INTERNAL; }
+  AttrType value_type() const override { return AttrType::UNDEFINED; }
+
+private:
+  string                         function_name_;
+  vector<unique_ptr<Expression>> children_;
+};
+
+class FunctionExpr : public Expression
+{
+public:
+  FunctionExpr(const char *function_name, vector<unique_ptr<Expression>> &&children);
+  virtual ~FunctionExpr() = default;
+
+  ExprType type() const override { return ExprType::FUNCTION; }
+  unique_ptr<Expression> copy() const override;
+
+  AttrType value_type() const override;
+  int      value_length() const override;
+
+  RC get_value(const Tuple &tuple, Value &value) const override;
+  RC try_get_value(Value &value) const override;
+
+  const char *function_name() const { return function_name_.c_str(); }
+  vector<unique_ptr<Expression>> &children() { return children_; }
+  const vector<unique_ptr<Expression>> &children() const { return children_; }
+
+private:
+  RC calc(const vector<Value> &args, Value &value) const;
+
+private:
+  string                         function_name_;
+  vector<unique_ptr<Expression>> children_;
 };
 
 class UnboundAggregateExpr : public Expression

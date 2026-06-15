@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/optimizer/logical_plan_generator.h"
 
 #include "common/log/log.h"
+#include "common/lang/string.h"
 
 #include "sql/operator/calc_logical_operator.h"
 #include "sql/operator/delete_logical_operator.h"
@@ -24,7 +25,10 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/logical_operator.h"
 #include "sql/operator/predicate_logical_operator.h"
 #include "sql/operator/project_logical_operator.h"
+#include "sql/operator/sort_logical_operator.h"
+#include "sql/operator/limit_logical_operator.h"
 #include "sql/operator/table_get_logical_operator.h"
+#include "sql/operator/vector_index_logical_operator.h"
 #include "sql/operator/group_by_logical_operator.h"
 
 #include "sql/stmt/calc_stmt.h"
@@ -36,9 +40,104 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/stmt.h"
 
 #include "sql/expr/expression_iterator.h"
+#include "storage/index/index.h"
 
 using namespace std;
 using namespace common;
+
+static RC normalize_vector_distance_name(const string &method, string &normalized)
+{
+  if (0 == strcasecmp(method.c_str(), "EUCLIDEAN") || 0 == strcasecmp(method.c_str(), "L2") ||
+      0 == strcasecmp(method.c_str(), "L2_DISTANCE")) {
+    normalized = "EUCLIDEAN";
+  } else if (0 == strcasecmp(method.c_str(), "COSINE") || 0 == strcasecmp(method.c_str(), "COSINE_DISTANCE")) {
+    normalized = "COSINE";
+  } else if (0 == strcasecmp(method.c_str(), "DOT") || 0 == strcasecmp(method.c_str(), "INNER_PRODUCT")) {
+    normalized = "DOT";
+  } else {
+    return RC::INVALID_ARGUMENT;
+  }
+  return RC::SUCCESS;
+}
+
+static bool try_extract_vector_order(SelectStmt *select_stmt,
+    Table *table,
+    Index *&index,
+    vector<float> &query_vector,
+    int &limit,
+    bool &asc)
+{
+  if (select_stmt->tables().size() != 1 || select_stmt->limit() < 0 || select_stmt->order_by().size() != 1) {
+    return false;
+  }
+
+  Expression *order_expr = select_stmt->order_by()[0].get();
+  if (order_expr->type() != ExprType::FUNCTION) {
+    return false;
+  }
+
+  auto *function_expr = static_cast<FunctionExpr *>(order_expr);
+  if (0 != strcasecmp(function_expr->function_name(), "DISTANCE")) {
+    return false;
+  }
+
+  const vector<unique_ptr<Expression>> &children = function_expr->children();
+  if (children.size() != 3) {
+    return false;
+  }
+
+  Value method_value;
+  if (children[2]->try_get_value(method_value) != RC::SUCCESS || method_value.attr_type() != AttrType::CHARS) {
+    return false;
+  }
+
+  string query_distance;
+  if (normalize_vector_distance_name(method_value.get_string(), query_distance) != RC::SUCCESS) {
+    return false;
+  }
+
+  auto try_extract_pair = [&](Expression *field_candidate, Expression *value_candidate) -> bool {
+    if (field_candidate->type() != ExprType::FIELD) {
+      return false;
+    }
+
+    auto *field_expr = static_cast<FieldExpr *>(field_candidate);
+    const Field &field = field_expr->field();
+    if (field.table() != table || field.attr_type() != AttrType::VECTORS) {
+      return false;
+    }
+
+    Value vector_value;
+    if (value_candidate->try_get_value(vector_value) != RC::SUCCESS || vector_value.attr_type() != AttrType::VECTORS ||
+        vector_value.length() != field.meta()->len()) {
+      return false;
+    }
+
+    Index *candidate_index = table->find_index_by_field(field.field_name());
+    if (candidate_index == nullptr || !candidate_index->is_vector_index()) {
+      return false;
+    }
+
+    string index_distance;
+    if (normalize_vector_distance_name(candidate_index->index_meta().distance(), index_distance) != RC::SUCCESS ||
+        0 != strcasecmp(index_distance.c_str(), query_distance.c_str())) {
+      return false;
+    }
+
+    query_vector = vector_value.get_vector();
+    index = candidate_index;
+    return true;
+  };
+
+  if (!try_extract_pair(children[0].get(), children[1].get()) &&
+      !try_extract_pair(children[1].get(), children[0].get())) {
+    return false;
+  }
+
+  limit = select_stmt->limit();
+  asc = select_stmt->order_asc().empty() ? true : select_stmt->order_asc()[0];
+  return true;
+}
 
 RC LogicalPlanGenerator::create(Stmt *stmt, unique_ptr<LogicalOperator> &logical_operator)
 {
@@ -93,6 +192,8 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   unique_ptr<LogicalOperator> table_oper(nullptr);
   last_oper = &table_oper;
   unique_ptr<LogicalOperator> predicate_oper;
+  unique_ptr<LogicalOperator> sort_oper;
+  unique_ptr<LogicalOperator> limit_oper;
 
   RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
   if (OB_FAIL(rc)) {
@@ -103,7 +204,17 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   const vector<Table *> &tables = select_stmt->tables();
   for (Table *table : tables) {
 
-    unique_ptr<LogicalOperator> table_get_oper(new TableGetLogicalOperator(table, ReadWriteMode::READ_ONLY));
+    unique_ptr<LogicalOperator> table_get_oper;
+    Index *vector_index = nullptr;
+    vector<float> query_vector;
+    int vector_limit = -1;
+    bool vector_asc = true;
+    if (try_extract_vector_order(select_stmt, table, vector_index, query_vector, vector_limit, vector_asc)) {
+      table_get_oper = make_unique<VectorIndexLogicalOperator>(
+          table, vector_index, std::move(query_vector), vector_limit, vector_asc);
+    } else {
+      table_get_oper = make_unique<TableGetLogicalOperator>(table, ReadWriteMode::READ_ONLY);
+    }
     if (table_oper == nullptr) {
       table_oper = std::move(table_get_oper);
     } else {
@@ -138,12 +249,31 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
     last_oper = &group_by_oper;
   }
 
+  if (!select_stmt->order_by().empty()) {
+    sort_oper =
+        make_unique<SortLogicalOperator>(std::move(select_stmt->order_by()), vector<bool>(select_stmt->order_asc()));
+    if (*last_oper) {
+      sort_oper->add_child(std::move(*last_oper));
+    }
+
+    last_oper = &sort_oper;
+  }
+
   unique_ptr<LogicalOperator> project_oper = make_unique<ProjectLogicalOperator>(std::move(select_stmt->query_expressions()));
   if (*last_oper) {
     project_oper->add_child(std::move(*last_oper));
   }
 
   last_oper = &project_oper;
+
+  if (select_stmt->limit() >= 0) {
+    limit_oper = make_unique<LimitLogicalOperator>(select_stmt->limit());
+    if (*last_oper) {
+      limit_oper->add_child(std::move(*last_oper));
+    }
+
+    last_oper = &limit_oper;
+  }
 
   logical_operator = std::move(*last_oper);
   return RC::SUCCESS;

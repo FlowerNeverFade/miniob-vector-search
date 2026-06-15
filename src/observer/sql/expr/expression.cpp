@@ -16,6 +16,9 @@ See the Mulan PSL v2 for more details. */
 #include "sql/expr/tuple.h"
 #include "sql/expr/arithmetic_operator.hpp"
 
+#include <cmath>
+#include <cstdint>
+
 using namespace std;
 
 RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
@@ -142,7 +145,18 @@ ComparisonExpr::~ComparisonExpr() {}
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
   RC  rc         = RC::SUCCESS;
+  if (left.attr_type() == AttrType::VECTORS || right.attr_type() == AttrType::VECTORS) {
+    if (left.attr_type() != AttrType::VECTORS || right.attr_type() != AttrType::VECTORS) {
+      return RC::INVALID_ARGUMENT;
+    }
+    if (comp_ != EQUAL_TO && comp_ != NOT_EQUAL) {
+      return RC::UNSUPPORTED;
+    }
+  }
   int cmp_result = left.compare(right);
+  if (cmp_result == INT32_MAX) {
+    return RC::UNSUPPORTED;
+  }
   result         = false;
   switch (comp_) {
     case EQUAL_TO: {
@@ -548,6 +562,177 @@ RC ArithmeticExpr::try_get_value(Value &value) const
   }
 
   return calc_value(left_value, right_value, value);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+UnboundFunctionExpr::UnboundFunctionExpr(const char *function_name, vector<unique_ptr<Expression>> &&children)
+    : function_name_(function_name), children_(std::move(children))
+{}
+
+unique_ptr<Expression> UnboundFunctionExpr::copy() const
+{
+  vector<unique_ptr<Expression>> children;
+  for (const auto &child : children_) {
+    children.emplace_back(child->copy());
+  }
+  return make_unique<UnboundFunctionExpr>(function_name_.c_str(), std::move(children));
+}
+
+FunctionExpr::FunctionExpr(const char *function_name, vector<unique_ptr<Expression>> &&children)
+    : function_name_(function_name), children_(std::move(children))
+{}
+
+unique_ptr<Expression> FunctionExpr::copy() const
+{
+  vector<unique_ptr<Expression>> children;
+  for (const auto &child : children_) {
+    children.emplace_back(child->copy());
+  }
+  return make_unique<FunctionExpr>(function_name_.c_str(), std::move(children));
+}
+
+AttrType FunctionExpr::value_type() const
+{
+  if (0 == strcasecmp(function_name_.c_str(), "STRING_TO_VECTOR")) {
+    return AttrType::VECTORS;
+  }
+  if (0 == strcasecmp(function_name_.c_str(), "VECTOR_TO_STRING")) {
+    return AttrType::CHARS;
+  }
+  if (0 == strcasecmp(function_name_.c_str(), "DISTANCE")) {
+    return AttrType::FLOATS;
+  }
+  return AttrType::UNDEFINED;
+}
+
+int FunctionExpr::value_length() const
+{
+  if (0 == strcasecmp(function_name_.c_str(), "STRING_TO_VECTOR")) {
+    Value value;
+    if (try_get_value(value) == RC::SUCCESS) {
+      return value.length();
+    }
+  }
+  if (0 == strcasecmp(function_name_.c_str(), "VECTOR_TO_STRING")) {
+    return -1;
+  }
+  if (0 == strcasecmp(function_name_.c_str(), "DISTANCE")) {
+    return sizeof(float);
+  }
+  return -1;
+}
+
+static RC normalize_distance_method(const string &method, string &normalized)
+{
+  normalized.clear();
+  if (0 == strcasecmp(method.c_str(), "EUCLIDEAN") || 0 == strcasecmp(method.c_str(), "L2") ||
+      0 == strcasecmp(method.c_str(), "L2_DISTANCE")) {
+    normalized = "EUCLIDEAN";
+  } else if (0 == strcasecmp(method.c_str(), "COSINE") || 0 == strcasecmp(method.c_str(), "COSINE_DISTANCE")) {
+    normalized = "COSINE";
+  } else if (0 == strcasecmp(method.c_str(), "DOT") || 0 == strcasecmp(method.c_str(), "INNER_PRODUCT")) {
+    normalized = "DOT";
+  } else {
+    return RC::INVALID_ARGUMENT;
+  }
+  return RC::SUCCESS;
+}
+
+RC FunctionExpr::calc(const vector<Value> &args, Value &value) const
+{
+  if (0 == strcasecmp(function_name_.c_str(), "STRING_TO_VECTOR")) {
+    if (args.size() != 1 || args[0].attr_type() != AttrType::CHARS) {
+      return RC::INVALID_ARGUMENT;
+    }
+    return value.set_vector_from_string(args[0].data(), args[0].length());
+  }
+
+  if (0 == strcasecmp(function_name_.c_str(), "VECTOR_TO_STRING")) {
+    if (args.size() != 1 || args[0].attr_type() != AttrType::VECTORS) {
+      return RC::INVALID_ARGUMENT;
+    }
+    value.set_string(args[0].to_string().c_str());
+    return RC::SUCCESS;
+  }
+
+  if (0 == strcasecmp(function_name_.c_str(), "DISTANCE")) {
+    if (args.size() != 3 || args[0].attr_type() != AttrType::VECTORS || args[1].attr_type() != AttrType::VECTORS ||
+        args[2].attr_type() != AttrType::CHARS || args[0].length() != args[1].length()) {
+      return RC::INVALID_ARGUMENT;
+    }
+
+    string method;
+    RC rc = normalize_distance_method(args[2].get_string(), method);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+
+    const int dim = args[0].length() / static_cast<int>(sizeof(float));
+    const float *left = reinterpret_cast<const float *>(args[0].data());
+    const float *right = reinterpret_cast<const float *>(args[1].data());
+    float result = 0.0f;
+
+    if (method == "EUCLIDEAN") {
+      for (int i = 0; i < dim; i++) {
+        const float diff = left[i] - right[i];
+        result += diff * diff;
+      }
+      result = sqrtf(result);
+    } else if (method == "DOT") {
+      for (int i = 0; i < dim; i++) {
+        result += left[i] * right[i];
+      }
+    } else if (method == "COSINE") {
+      float dot = 0.0f;
+      float left_norm = 0.0f;
+      float right_norm = 0.0f;
+      for (int i = 0; i < dim; i++) {
+        dot += left[i] * right[i];
+        left_norm += left[i] * left[i];
+        right_norm += right[i] * right[i];
+      }
+      if (left_norm <= EPSILON || right_norm <= EPSILON) {
+        return RC::INVALID_ARGUMENT;
+      }
+      result = 1.0f - dot / (sqrtf(left_norm) * sqrtf(right_norm));
+    }
+
+    value.set_float(result);
+    return RC::SUCCESS;
+  }
+
+  return RC::UNSUPPORTED;
+}
+
+RC FunctionExpr::get_value(const Tuple &tuple, Value &value) const
+{
+  vector<Value> args;
+  args.reserve(children_.size());
+  for (const auto &child : children_) {
+    Value arg;
+    RC rc = child->get_value(tuple, arg);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    args.push_back(arg);
+  }
+  return calc(args, value);
+}
+
+RC FunctionExpr::try_get_value(Value &value) const
+{
+  vector<Value> args;
+  args.reserve(children_.size());
+  for (const auto &child : children_) {
+    Value arg;
+    RC rc = child->try_get_value(arg);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    args.push_back(arg);
+  }
+  return calc(args, value);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

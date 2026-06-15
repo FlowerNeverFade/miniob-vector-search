@@ -32,5 +32,12 @@ RC CreateIndexExecutor::execute(SQLStageEvent *sql_event)
 
   Trx   *trx   = session->current_trx();
   Table *table = create_index_stmt->table();
-  return table->create_index(trx, create_index_stmt->field_meta(), create_index_stmt->index_name().c_str());
+  return table->create_index(trx,
+      create_index_stmt->field_meta(),
+      create_index_stmt->index_name().c_str(),
+      create_index_stmt->is_vector(),
+      create_index_stmt->vector_type().c_str(),
+      create_index_stmt->distance().c_str(),
+      create_index_stmt->lists(),
+      create_index_stmt->probes());
 }

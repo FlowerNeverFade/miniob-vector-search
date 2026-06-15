@@ -20,6 +20,8 @@ See the Mulan PSL v2 for more details. */
 
 using namespace common;
 
+RC check_aggregate_expression(AggregateExpr &expression);
+
 Table *BinderContext::find_table(const char *table_name) const
 {
   auto pred = [table_name](Table *table) { return 0 == strcasecmp(table_name, table->name()); };
@@ -62,6 +64,10 @@ RC ExpressionBinder::bind_expression(unique_ptr<Expression> &expr, vector<unique
       return bind_aggregate_expression(expr, bound_expressions);
     } break;
 
+    case ExprType::UNBOUND_FUNCTION: {
+      return bind_function_expression(expr, bound_expressions);
+    } break;
+
     case ExprType::FIELD: {
       return bind_field_expression(expr, bound_expressions);
     } break;
@@ -84,6 +90,11 @@ RC ExpressionBinder::bind_expression(unique_ptr<Expression> &expr, vector<unique
 
     case ExprType::ARITHMETIC: {
       return bind_arithmetic_expression(expr, bound_expressions);
+    } break;
+
+    case ExprType::FUNCTION: {
+      bound_expressions.emplace_back(std::move(expr));
+      return RC::SUCCESS;
     } break;
 
     case ExprType::AGGREGATION: {
@@ -169,7 +180,7 @@ RC ExpressionBinder::bind_unbound_field_expression(
 
     Field      field(table, field_meta);
     FieldExpr *field_expr = new FieldExpr(field);
-    field_expr->set_name(field_name);
+    field_expr->set_name(unbound_field_expr->name());
     bound_expressions.emplace_back(field_expr);
   }
 
@@ -351,6 +362,64 @@ RC ExpressionBinder::bind_arithmetic_expression(
   }
 
   bound_expressions.emplace_back(std::move(expr));
+  return RC::SUCCESS;
+}
+
+RC ExpressionBinder::bind_function_expression(
+    unique_ptr<Expression> &expr, vector<unique_ptr<Expression>> &bound_expressions)
+{
+  if (nullptr == expr) {
+    return RC::SUCCESS;
+  }
+
+  auto unbound_function_expr = static_cast<UnboundFunctionExpr *>(expr.get());
+  const char *function_name = unbound_function_expr->function_name();
+  vector<unique_ptr<Expression>> bound_children;
+
+  vector<unique_ptr<Expression>> &raw_children = unbound_function_expr->children();
+  for (size_t i = 0; i < raw_children.size(); i++) {
+    unique_ptr<Expression> &child_expr = raw_children[i];
+    if (0 == strcasecmp(function_name, "DISTANCE") && i == 2 && child_expr->type() == ExprType::UNBOUND_FIELD) {
+      auto *method_expr = static_cast<UnboundFieldExpr *>(child_expr.get());
+      if (common::is_blank(method_expr->table_name())) {
+        auto value_expr = make_unique<ValueExpr>(Value(method_expr->field_name()));
+        value_expr->set_name(method_expr->field_name());
+        child_expr = std::move(value_expr);
+      }
+    }
+
+    vector<unique_ptr<Expression>> child_bound_expressions;
+    RC rc = bind_expression(child_expr, child_bound_expressions);
+    if (OB_FAIL(rc)) {
+      return rc;
+    }
+
+    if (child_bound_expressions.size() != 1) {
+      LOG_WARN("invalid children number of function expression: %d", child_bound_expressions.size());
+      return RC::INVALID_ARGUMENT;
+    }
+    bound_children.emplace_back(std::move(child_bound_expressions[0]));
+  }
+
+  AggregateExpr::Type aggregate_type;
+  RC rc = AggregateExpr::type_from_string(function_name, aggregate_type);
+  if (rc == RC::SUCCESS) {
+    if (bound_children.size() != 1) {
+      return RC::INVALID_ARGUMENT;
+    }
+    auto aggregate_expr = make_unique<AggregateExpr>(aggregate_type, std::move(bound_children[0]));
+    aggregate_expr->set_name(unbound_function_expr->name());
+    rc = check_aggregate_expression(*aggregate_expr);
+    if (OB_FAIL(rc)) {
+      return rc;
+    }
+    bound_expressions.emplace_back(std::move(aggregate_expr));
+    return RC::SUCCESS;
+  }
+
+  auto function_expr = make_unique<FunctionExpr>(function_name, std::move(bound_children));
+  function_expr->set_name(unbound_function_expr->name());
+  bound_expressions.emplace_back(std::move(function_expr));
   return RC::SUCCESS;
 }
 

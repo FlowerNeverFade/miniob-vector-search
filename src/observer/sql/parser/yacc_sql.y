@@ -50,6 +50,17 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   return expr;
 }
 
+UnboundFunctionExpr *create_function_expression(const char *function_name,
+                                                vector<unique_ptr<Expression>> *args,
+                                                const char *sql_string,
+                                                YYLTYPE *llocp)
+{
+  UnboundFunctionExpr *expr = new UnboundFunctionExpr(function_name, std::move(*args));
+  expr->set_name(token_name(sql_string, llocp));
+  delete args;
+  return expr;
+}
+
 %}
 
 %define api.pure full
@@ -97,6 +108,11 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         FROM
         WHERE
         AND
+        AS
+        ORDER
+        ASC
+        LIMIT
+        WITH
         SET
         ON
         LOAD
@@ -129,11 +145,13 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   AttrInfoSqlNode *                          attr_info;
   Expression *                               expression;
   vector<unique_ptr<Expression>> *           expression_list;
+  OrderBySqlNode *                           order_by_node;
   vector<Value> *                            value_list;
   vector<ConditionSqlNode> *                 condition_list;
   vector<RelAttrSqlNode> *                   rel_attr_list;
   vector<string> *                           relation_list;
   vector<string> *                           key_list;
+  VectorIndexOptionsSqlNode *                vector_index_options;
   char *                                     cstring;
   int                                        number;
   float                                      floats;
@@ -145,11 +163,13 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %destructor { delete $$; } <attr_infos>
 %destructor { delete $$; } <expression>
 %destructor { delete $$; } <expression_list>
+%destructor { delete $$; } <order_by_node>
 %destructor { delete $$; } <value_list>
 %destructor { delete $$; } <condition_list>
 // %destructor { delete $$; } <rel_attr_list>
 %destructor { delete $$; } <relation_list>
 %destructor { delete $$; } <key_list>
+%destructor { delete $$; } <vector_index_options>
 
 %token <number> NUMBER
 %token <floats> FLOAT
@@ -175,9 +195,19 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <key_list>            attr_list
 %type <relation_list>       rel_list
 %type <expression>          expression
+%type <expression>          select_expression
 %type <expression>          aggregate_expression
+%type <expression>          function_expression
 %type <expression_list>     expression_list
+%type <order_by_node>       order_by
+%type <order_by_node>       order_by_list
 %type <expression_list>     group_by
+%type <number>              opt_order_dir
+%type <number>              limit
+%type <cstring>             opt_alias
+%type <vector_index_options> vector_index_options
+%type <vector_index_options> vector_index_option_list
+%type <vector_index_options> vector_index_option
 %type <cstring>             fields_terminated_by
 %type <cstring>             enclosed_by
 %type <sql_node>            calc_stmt
@@ -311,9 +341,109 @@ create_index_stmt:    /*create index 语句的语法解析树*/
       create_index.relation_name = $5;
       create_index.attribute_name = $7;
     }
+    | CREATE VECTOR_T INDEX ID ON ID LBRACE ID RBRACE vector_index_options
+    {
+      $$ = new ParsedSqlNode(SCF_CREATE_INDEX);
+      CreateIndexSqlNode &create_index = $$->create_index;
+      create_index.index_name = $4;
+      create_index.relation_name = $6;
+      create_index.attribute_name = $8;
+      create_index.is_vector = true;
+      create_index.vector_type = $10->vector_type;
+      create_index.distance = $10->distance;
+      create_index.lists = $10->lists;
+      create_index.probes = $10->probes;
+      delete $10;
+    }
     ;
 
-drop_index_stmt:      /*drop index 语句的语法解析树*/
+vector_index_options:
+    /* empty */
+    {
+      $$ = new VectorIndexOptionsSqlNode;
+    }
+    | WITH LBRACE vector_index_option_list RBRACE
+    {
+      $$ = $3;
+    }
+    ;
+
+vector_index_option_list:
+    vector_index_option
+    {
+      $$ = $1;
+    }
+    | vector_index_option_list COMMA vector_index_option
+    {
+      $$ = $1;
+      if (!$3->vector_type.empty()) {
+        $$->vector_type = $3->vector_type;
+      }
+      if (!$3->distance.empty()) {
+        $$->distance = $3->distance;
+      }
+      if ($3->lists > 0) {
+        $$->lists = $3->lists;
+      }
+      if ($3->probes > 0) {
+        $$->probes = $3->probes;
+      }
+      delete $3;
+    }
+    ;
+
+vector_index_option:
+    ID EQ ID
+    {
+      $$ = new VectorIndexOptionsSqlNode;
+      $$->vector_type.clear();
+      $$->distance.clear();
+      $$->lists = 0;
+      $$->probes = 0;
+      if (0 == strcasecmp($1, "type")) {
+        $$->vector_type = $3;
+      } else if (0 == strcasecmp($1, "distance")) {
+        $$->distance = $3;
+      } else {
+        YYERROR;
+      }
+    }
+    | ID EQ SSS
+    {
+      $$ = new VectorIndexOptionsSqlNode;
+      $$->vector_type.clear();
+      $$->distance.clear();
+      $$->lists = 0;
+      $$->probes = 0;
+      char *tmp = common::substr($3, 1, strlen($3) - 2);
+      if (0 == strcasecmp($1, "type")) {
+        $$->vector_type = tmp;
+      } else if (0 == strcasecmp($1, "distance")) {
+        $$->distance = tmp;
+      } else {
+        free(tmp);
+        YYERROR;
+      }
+      free(tmp);
+    }
+    | ID EQ NUMBER
+    {
+      $$ = new VectorIndexOptionsSqlNode;
+      $$->vector_type.clear();
+      $$->distance.clear();
+      $$->lists = 0;
+      $$->probes = 0;
+      if (0 == strcasecmp($1, "lists")) {
+        $$->lists = $3;
+      } else if (0 == strcasecmp($1, "probes")) {
+        $$->probes = $3;
+      } else {
+        YYERROR;
+      }
+    }
+    ;
+
+drop_index_stmt:
     DROP INDEX ID ON ID
     {
       $$ = new ParsedSqlNode(SCF_DROP_INDEX);
@@ -363,14 +493,21 @@ attr_def:
       $$ = new AttrInfoSqlNode;
       $$->type = (AttrType)$2;
       $$->name = $1;
-      $$->length = $4;
+      if ($$->type == AttrType::VECTORS) {
+        if ($4 <= 0 || $4 > VECTOR_MAX_DIMENSION) {
+          YYERROR;
+        }
+        $$->length = $4 * VECTOR_ELEMENT_SIZE;
+      } else {
+        $$->length = $4;
+      }
     }
     | ID type
     {
       $$ = new AttrInfoSqlNode;
       $$->type = (AttrType)$2;
       $$->name = $1;
-      $$->length = 4;
+      $$->length = $$->type == AttrType::VECTORS ? VECTOR_DEFAULT_DIMENSION * VECTOR_ELEMENT_SIZE : 4;
     }
     ;
 number:
@@ -446,6 +583,19 @@ value:
       $$ = new Value(tmp);
       free(tmp);
     }
+    | ID LBRACE SSS RBRACE {
+      if (0 != strcasecmp($1, "STRING_TO_VECTOR")) {
+        YYERROR;
+      }
+      char *tmp = common::substr($3, 1, strlen($3) - 2);
+      $$ = new Value;
+      RC rc = $$->set_vector_from_string(tmp);
+      free(tmp);
+      if (rc != RC::SUCCESS) {
+        delete $$;
+        YYERROR;
+      }
+    }
     ;
 storage_format:
     /* empty */
@@ -483,7 +633,7 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM rel_list where group_by
+    SELECT expression_list FROM rel_list where group_by order_by limit
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -505,6 +655,14 @@ select_stmt:        /*  select 语句的语法解析树*/
         $$->selection.group_by.swap(*$6);
         delete $6;
       }
+
+      if ($7 != nullptr) {
+        $$->selection.order_by.swap($7->expressions);
+        $$->selection.order_asc.swap($7->asc);
+        delete $7;
+      }
+
+      $$->selection.limit = $8;
     }
     ;
 calc_stmt:
@@ -517,12 +675,12 @@ calc_stmt:
     ;
 
 expression_list:
-    expression
+    select_expression
     {
       $$ = new vector<unique_ptr<Expression>>;
       $$->emplace_back($1);
     }
-    | expression COMMA expression_list
+    | select_expression COMMA expression_list
     {
       if ($3 != nullptr) {
         $$ = $3;
@@ -530,6 +688,15 @@ expression_list:
         $$ = new vector<unique_ptr<Expression>>;
       }
       $$->emplace($$->begin(), $1);
+    }
+    ;
+select_expression:
+    expression opt_alias
+    {
+      $$ = $1;
+      if ($2 != nullptr) {
+        $$->set_name($2);
+      }
     }
     ;
 expression:
@@ -566,7 +733,22 @@ expression:
       $$->set_name(token_name(sql_string, &@$));
       delete $1;
     }
-    | aggregate_expression {
+    | function_expression {
+      $$ = $1;
+    }
+    ;
+
+opt_alias:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | AS ID
+    {
+      $$ = $2;
+    }
+    | ID
+    {
       $$ = $1;
     }
     ;
@@ -574,6 +756,12 @@ expression:
 aggregate_expression:
     ID LBRACE expression RBRACE {
       $$ = create_aggregate_expression($1, $3, sql_string, &@$);
+    }
+    ;
+
+function_expression:
+    ID LBRACE expression_list RBRACE {
+      $$ = create_function_expression($1, $3, sql_string, &@$);
     }
     ;
 
@@ -706,6 +894,54 @@ group_by:
       // group by 的表达式范围与select查询值的表达式范围是不同的，比如group by不支持 *
       // 但是这里没有处理。
       $$ = $3;
+    }
+    ;
+order_by:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | ORDER BY order_by_list
+    {
+      $$ = $3;
+    }
+    ;
+order_by_list:
+    expression opt_order_dir
+    {
+      $$ = new OrderBySqlNode;
+      $$->expressions.emplace_back($1);
+      $$->asc.push_back($2 != 0);
+    }
+    | expression opt_order_dir COMMA order_by_list
+    {
+      $$ = $4;
+      $$->expressions.emplace($$->expressions.begin(), $1);
+      $$->asc.insert($$->asc.begin(), $2 != 0);
+    }
+    ;
+opt_order_dir:
+    /* empty */
+    {
+      $$ = 1;
+    }
+    | ASC
+    {
+      $$ = 1;
+    }
+    | DESC
+    {
+      $$ = 0;
+    }
+    ;
+limit:
+    /* empty */
+    {
+      $$ = -1;
+    }
+    | LIMIT NUMBER
+    {
+      $$ = $2;
     }
     ;
 load_data_stmt:

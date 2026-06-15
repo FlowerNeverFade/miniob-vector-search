@@ -27,8 +27,22 @@ class FieldMeta;
 class CreateIndexStmt : public Stmt
 {
 public:
-  CreateIndexStmt(Table *table, const FieldMeta *field_meta, const string &index_name)
-      : table_(table), field_meta_(field_meta), index_name_(index_name)
+  CreateIndexStmt(Table *table,
+                  const FieldMeta *field_meta,
+                  const string &index_name,
+                  bool is_vector,
+                  const string &vector_type,
+                  const string &distance,
+                  int lists,
+                  int probes)
+      : table_(table),
+        field_meta_(field_meta),
+        index_name_(index_name),
+        is_vector_(is_vector),
+        vector_type_(vector_type),
+        distance_(distance),
+        lists_(lists),
+        probes_(probes)
   {}
 
   virtual ~CreateIndexStmt() = default;
@@ -38,6 +52,11 @@ public:
   Table           *table() const { return table_; }
   const FieldMeta *field_meta() const { return field_meta_; }
   const string    &index_name() const { return index_name_; }
+  bool             is_vector() const { return is_vector_; }
+  const string    &vector_type() const { return vector_type_; }
+  const string    &distance() const { return distance_; }
+  int              lists() const { return lists_; }
+  int              probes() const { return probes_; }
 
 public:
   static RC create(Db *db, const CreateIndexSqlNode &create_index, Stmt *&stmt);
@@ -46,4 +65,9 @@ private:
   Table           *table_      = nullptr;
   const FieldMeta *field_meta_ = nullptr;
   string           index_name_;
+  bool             is_vector_ = false;
+  string           vector_type_ = "ivfflat";
+  string           distance_ = "EUCLIDEAN";
+  int              lists_ = 245;
+  int              probes_ = 5;
 };

@@ -228,6 +228,12 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
   for (int i = 0; i < value_num && OB_SUCC(rc); i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &    value = values[i];
+    if (field->type() == AttrType::VECTORS && (value.attr_type() != AttrType::VECTORS || value.length() != field->len())) {
+      LOG_WARN("vector field mismatch. table=%s, field=%s, field_len=%d, value_len=%d",
+          table_meta_.name(), field->name(), field->len(), value.length());
+      rc = RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      break;
+    }
     if (field->type() != value.attr_type()) {
       Value real_value;
       rc = Value::cast_to(value, field->type(), real_value);
@@ -255,6 +261,9 @@ RC Table::set_value_to_record(char *record_data, const Value &value, const Field
 {
   size_t       copy_len = field->len();
   const size_t data_len = value.length();
+  if (field->type() == AttrType::VECTORS && copy_len != data_len) {
+    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  }
   if (field->type() == AttrType::CHARS) {
     if (copy_len > data_len) {
       copy_len = data_len + 1;
@@ -274,9 +283,16 @@ RC Table::get_chunk_scanner(ChunkFileScanner &scanner, Trx *trx, ReadWriteMode m
   return engine_->get_chunk_scanner(scanner, trx, mode);
 }
 
-RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name)
+RC Table::create_index(Trx *trx,
+    const FieldMeta *field_meta,
+    const char *index_name,
+    bool is_vector,
+    const char *vector_type,
+    const char *distance,
+    int lists,
+    int probes)
 {
-  return engine_->create_index(trx, field_meta, index_name);
+  return engine_->create_index(trx, field_meta, index_name, is_vector, vector_type, distance, lists, probes);
 }
 
 RC Table::delete_record(const Record &record)

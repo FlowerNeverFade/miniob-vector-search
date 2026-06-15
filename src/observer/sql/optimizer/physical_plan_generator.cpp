@@ -35,14 +35,21 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/project_logical_operator.h"
 #include "sql/operator/project_physical_operator.h"
 #include "sql/operator/project_vec_physical_operator.h"
+#include "sql/operator/sort_logical_operator.h"
+#include "sql/operator/sort_physical_operator.h"
+#include "sql/operator/limit_logical_operator.h"
+#include "sql/operator/limit_physical_operator.h"
 #include "sql/operator/table_get_logical_operator.h"
 #include "sql/operator/table_scan_physical_operator.h"
+#include "sql/operator/vector_index_logical_operator.h"
+#include "sql/operator/vector_index_scan_physical_operator.h"
 #include "sql/operator/group_by_logical_operator.h"
 #include "sql/operator/group_by_physical_operator.h"
 #include "sql/operator/hash_group_by_physical_operator.h"
 #include "sql/operator/scalar_group_by_physical_operator.h"
 #include "sql/operator/table_scan_vec_physical_operator.h"
 #include "sql/optimizer/physical_plan_generator.h"
+#include "storage/index/ivfflat_index.h"
 
 using namespace std;
 
@@ -85,6 +92,18 @@ RC PhysicalPlanGenerator::create(LogicalOperator &logical_operator, unique_ptr<P
 
     case LogicalOperatorType::GROUP_BY: {
       return create_plan(static_cast<GroupByLogicalOperator &>(logical_operator), oper, session);
+    } break;
+
+    case LogicalOperatorType::SORT: {
+      return create_plan(static_cast<SortLogicalOperator &>(logical_operator), oper, session);
+    } break;
+
+    case LogicalOperatorType::LIMIT: {
+      return create_plan(static_cast<LimitLogicalOperator &>(logical_operator), oper, session);
+    } break;
+
+    case LogicalOperatorType::VECTOR_INDEX_SCAN: {
+      return create_plan(static_cast<VectorIndexLogicalOperator &>(logical_operator), oper, session);
     } break;
 
     default: {
@@ -160,6 +179,10 @@ RC PhysicalPlanGenerator::create_plan(TableGetLogicalOperator &table_get_oper, u
 
       const Field &field = field_expr->field();
       index              = table->find_index_by_field(field.field_name());
+      if (index != nullptr && index->is_vector_index()) {
+        index = nullptr;
+        continue;
+      }
       if (nullptr != index) {
         break;
       }
@@ -369,6 +392,51 @@ RC PhysicalPlanGenerator::create_plan(GroupByLogicalOperator &logical_oper, uniq
 
   oper = std::move(group_by_oper);
   return rc;
+}
+
+RC PhysicalPlanGenerator::create_plan(SortLogicalOperator &logical_oper, unique_ptr<PhysicalOperator> &oper, Session *session)
+{
+  ASSERT(logical_oper.children().size() == 1, "sort operator should have 1 child");
+
+  unique_ptr<PhysicalOperator> child_physical_oper;
+  RC                           rc = create(*logical_oper.children().front(), child_physical_oper, session);
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to create child physical operator of sort operator. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  auto sort_oper = make_unique<SortPhysicalOperator>(std::move(logical_oper.expressions()), vector<bool>(logical_oper.asc()));
+  sort_oper->add_child(std::move(child_physical_oper));
+  oper = std::move(sort_oper);
+  return RC::SUCCESS;
+}
+
+RC PhysicalPlanGenerator::create_plan(LimitLogicalOperator &logical_oper, unique_ptr<PhysicalOperator> &oper, Session *session)
+{
+  ASSERT(logical_oper.children().size() == 1, "limit operator should have 1 child");
+
+  unique_ptr<PhysicalOperator> child_physical_oper;
+  RC                           rc = create(*logical_oper.children().front(), child_physical_oper, session);
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to create child physical operator of limit operator. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  auto limit_oper = make_unique<LimitPhysicalOperator>(logical_oper.limit());
+  limit_oper->add_child(std::move(child_physical_oper));
+  oper = std::move(limit_oper);
+  return RC::SUCCESS;
+}
+
+RC PhysicalPlanGenerator::create_plan(VectorIndexLogicalOperator &logical_oper,
+    unique_ptr<PhysicalOperator> &oper,
+    Session *session)
+{
+  (void)session;
+  auto *ivfflat_index = static_cast<IvfflatIndex *>(logical_oper.index());
+  oper = make_unique<VectorIndexScanPhysicalOperator>(
+      logical_oper.table(), ivfflat_index, vector<float>(logical_oper.query_vector()), logical_oper.limit(), logical_oper.asc());
+  return RC::SUCCESS;
 }
 
 RC PhysicalPlanGenerator::create_vec_plan(TableGetLogicalOperator &table_get_oper, unique_ptr<PhysicalOperator> &oper, Session* session)

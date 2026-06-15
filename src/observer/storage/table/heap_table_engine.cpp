@@ -12,6 +12,7 @@ See the Mulan PSL v2 for more details. */
 #include "storage/record/heap_record_scanner.h"
 #include "common/log/log.h"
 #include "storage/index/bplus_tree_index.h"
+#include "storage/index/ivfflat_index.h"
 #include "storage/common/meta_util.h"
 #include "storage/db/db.h"
 
@@ -122,7 +123,14 @@ RC HeapTableEngine::get_chunk_scanner(ChunkFileScanner &scanner, Trx *trx, ReadW
   return rc;
 }
 
-RC HeapTableEngine::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name)
+RC HeapTableEngine::create_index(Trx *trx,
+    const FieldMeta *field_meta,
+    const char *index_name,
+    bool is_vector,
+    const char *vector_type,
+    const char *distance,
+    int lists,
+    int probes)
 {
   if (common::is_blank(index_name) || nullptr == field_meta) {
     LOG_INFO("Invalid input arguments, table name is %s, index_name is blank or attribute_name is blank", table_meta_->name());
@@ -131,7 +139,7 @@ RC HeapTableEngine::create_index(Trx *trx, const FieldMeta *field_meta, const ch
 
   IndexMeta new_index_meta;
 
-  RC rc = new_index_meta.init(index_name, *field_meta);
+  RC rc = new_index_meta.init(index_name, *field_meta, is_vector, vector_type, distance, lists, probes);
   if (rc != RC::SUCCESS) {
     LOG_INFO("Failed to init IndexMeta in table:%s, index_name:%s, field_name:%s", 
              table_meta_->name(), index_name, field_meta->name());
@@ -139,13 +147,13 @@ RC HeapTableEngine::create_index(Trx *trx, const FieldMeta *field_meta, const ch
   }
 
   // 创建索引相关数据
-  BplusTreeIndex *index      = new BplusTreeIndex();
+  Index          *index      = is_vector ? static_cast<Index *>(new IvfflatIndex()) : static_cast<Index *>(new BplusTreeIndex());
   string          index_file = table_index_file(db_->path().c_str(), table_meta_->name(), index_name);
 
   rc = index->create(table_, index_file.c_str(), new_index_meta, *field_meta);
   if (rc != RC::SUCCESS) {
     delete index;
-    LOG_ERROR("Failed to create bplus tree index. file name=%s, rc=%d:%s", index_file.c_str(), rc, strrc(rc));
+    LOG_ERROR("Failed to create index. file name=%s, rc=%d:%s", index_file.c_str(), rc, strrc(rc));
     return rc;
   }
 
@@ -155,6 +163,7 @@ RC HeapTableEngine::create_index(Trx *trx, const FieldMeta *field_meta, const ch
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to create scanner while creating index. table=%s, index=%s, rc=%s", 
              table_meta_->name(), index_name, strrc(rc));
+    delete index;
     return rc;
   }
 
@@ -164,6 +173,9 @@ RC HeapTableEngine::create_index(Trx *trx, const FieldMeta *field_meta, const ch
     if (rc != RC::SUCCESS) {
       LOG_WARN("failed to insert record into index while creating index. table=%s, index=%s, rc=%s",
                table_meta_->name(), index_name, strrc(rc));
+      scanner->close_scan();
+      delete scanner;
+      delete index;
       return rc;
     }
   }
@@ -172,10 +184,21 @@ RC HeapTableEngine::create_index(Trx *trx, const FieldMeta *field_meta, const ch
   } else {
     LOG_WARN("failed to insert record into index while creating index. table=%s, index=%s, rc=%s",
              table_meta_->name(), index_name, strrc(rc));
+    scanner->close_scan();
+    delete scanner;
+    delete index;
     return rc;
   }
   scanner->close_scan();
   delete scanner;
+  if (index->is_vector_index()) {
+    rc = static_cast<IvfflatIndex *>(index)->rebuild();
+    if (OB_FAIL(rc)) {
+      delete index;
+      LOG_WARN("failed to train ivfflat index. table=%s, index=%s, rc=%s", table_meta_->name(), index_name, strrc(rc));
+      return rc;
+    }
+  }
   LOG_INFO("inserted all records into new index. table=%s, index=%s", table_meta_->name(), index_name);
 
   indexes_.push_back(index);
@@ -325,7 +348,8 @@ RC HeapTableEngine::open()
       return RC::INTERNAL;
     }
 
-    BplusTreeIndex *index      = new BplusTreeIndex();
+    Index          *index      = index_meta->is_vector() ? static_cast<Index *>(new IvfflatIndex())
+                                                         : static_cast<Index *>(new BplusTreeIndex());
     string          index_file = table_index_file(db_->path().c_str(), table_meta_->name(), index_meta->name());
 
     rc = index->open(table_, index_file.c_str(), *index_meta, *field_meta);
@@ -336,6 +360,48 @@ RC HeapTableEngine::open()
       // skip cleanup
       //  do all cleanup action in destructive Table function.
       return rc;
+    }
+
+    if (index->is_vector_index()) {
+      RecordScanner *scanner = nullptr;
+      rc = get_record_scanner(scanner, nullptr, ReadWriteMode::READ_ONLY);
+      if (OB_FAIL(rc)) {
+        delete index;
+        LOG_WARN("failed to create scanner while opening ivfflat index. table=%s, index=%s, rc=%s",
+            table_meta_->name(), index_meta->name(), strrc(rc));
+        return rc;
+      }
+
+      Record record;
+      while (OB_SUCC(rc = scanner->next(record))) {
+        rc = index->insert_entry(record.data(), &record.rid());
+        if (OB_FAIL(rc)) {
+          scanner->close_scan();
+          delete scanner;
+          delete index;
+          LOG_WARN("failed to insert record while rebuilding ivfflat index. table=%s, index=%s, rc=%s",
+              table_meta_->name(), index_meta->name(), strrc(rc));
+          return rc;
+        }
+      }
+      scanner->close_scan();
+      delete scanner;
+
+      if (rc == RC::RECORD_EOF) {
+        rc = RC::SUCCESS;
+      }
+      if (OB_FAIL(rc)) {
+        delete index;
+        return rc;
+      }
+
+      rc = static_cast<IvfflatIndex *>(index)->rebuild();
+      if (OB_FAIL(rc)) {
+        delete index;
+        LOG_WARN("failed to train ivfflat index. table=%s, index=%s, rc=%s",
+            table_meta_->name(), index_meta->name(), strrc(rc));
+        return rc;
+      }
     }
     indexes_.push_back(index);
   }

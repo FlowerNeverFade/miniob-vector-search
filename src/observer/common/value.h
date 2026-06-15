@@ -16,6 +16,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "common/lang/string.h"
 #include "common/lang/memory.h"
+#include "common/lang/vector.h"
 #include "common/type/attr_type.h"
 #include "common/type/data_type.h"
 #include "common/type/string_t.h"
@@ -112,6 +113,7 @@ public:
   string   get_string() const;
   string_t get_string_t() const;
   bool     get_boolean() const;
+  vector<float> get_vector() const;
 
 public:
   void set_int(int val);
@@ -119,6 +121,9 @@ public:
   void set_string(const char *s, int len = 0);
   void set_empty_string(int len);
   void set_string_from_other(const Value &other);
+  void set_vector(const vector<float> &values);
+  RC   set_vector_from_string(const char *s, int len = 0);
+  void set_vector_from_other(const Value &other);
 
 private:
   AttrType attr_type_ = AttrType::UNDEFINED;

@@ -36,10 +36,22 @@ public:
   IndexMeta() = default;
 
   RC init(const char *name, const FieldMeta &field);
+  RC init(const char *name,
+          const FieldMeta &field,
+          bool is_vector,
+          const char *vector_type,
+          const char *distance,
+          int lists,
+          int probes);
 
 public:
   const char *name() const;
   const char *field() const;
+  bool        is_vector() const { return is_vector_; }
+  const char *vector_type() const { return vector_type_.c_str(); }
+  const char *distance() const { return distance_.c_str(); }
+  int         lists() const { return lists_; }
+  int         probes() const { return probes_; }
 
   void desc(ostream &os) const;
 
@@ -48,6 +60,11 @@ public:
   static RC from_json(const TableMeta &table, const Json::Value &json_value, IndexMeta &index);
 
 protected:
-  string name_;   // index's name
-  string field_;  // field's name
+  string name_;                   // index's name
+  string field_;                  // field's name
+  bool   is_vector_   = false;    // true for IVF_Flat vector index
+  string vector_type_ = "ivfflat";
+  string distance_    = "EUCLIDEAN";
+  int    lists_       = 245;
+  int    probes_      = 5;
 };

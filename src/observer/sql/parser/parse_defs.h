@@ -22,6 +22,10 @@ See the Mulan PSL v2 for more details. */
 
 class Expression;
 
+constexpr int VECTOR_DEFAULT_DIMENSION = 2048;
+constexpr int VECTOR_MAX_DIMENSION     = 16383;
+constexpr int VECTOR_ELEMENT_SIZE      = sizeof(float);
+
 /**
  * @defgroup SQLParser SQL Parser
  */
@@ -75,6 +79,12 @@ struct ConditionSqlNode
   Value          right_value;    ///< right-hand side value if right_is_attr = FALSE
 };
 
+struct OrderBySqlNode
+{
+  vector<unique_ptr<Expression>> expressions;
+  vector<bool>                   asc;
+};
+
 /**
  * @brief 描述一个select语句
  * @ingroup SQLParser
@@ -92,6 +102,9 @@ struct SelectSqlNode
   vector<string>                 relations;    ///< 查询的表
   vector<ConditionSqlNode>       conditions;   ///< 查询条件，使用AND串联起来多个条件
   vector<unique_ptr<Expression>> group_by;     ///< group by clause
+  vector<unique_ptr<Expression>> order_by;      ///< order by expressions
+  vector<bool>                   order_asc;     ///< true for ASC, false for DESC
+  int                            limit = -1;    ///< -1 means no limit
 };
 
 /**
@@ -148,6 +161,14 @@ struct AttrInfoSqlNode
   size_t   length;  ///< Length of attribute
 };
 
+struct VectorIndexOptionsSqlNode
+{
+  string vector_type = "ivfflat";
+  string distance = "EUCLIDEAN";
+  int    lists = 245;
+  int    probes = 5;
+};
+
 /**
  * @brief 描述一个create table语句
  * @ingroup SQLParser
@@ -192,6 +213,11 @@ struct CreateIndexSqlNode
   string index_name;      ///< Index name
   string relation_name;   ///< Relation name
   string attribute_name;  ///< Attribute name
+  bool   is_vector = false;
+  string vector_type = "ivfflat";
+  string distance = "EUCLIDEAN";
+  int    lists = 245;
+  int    probes = 5;
 };
 
 /**

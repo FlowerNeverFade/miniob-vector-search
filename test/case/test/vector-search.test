@@ -1,0 +1,25 @@
+-- echo vector schema and insert
+
+create table t_vec(id int, emb vector(3), tag char);
+insert into t_vec values(1, string_to_vector('[1, 0, 0]'), 'a');
+insert into t_vec values(2, string_to_vector('[0, 1, 0]'), 'b');
+insert into t_vec values(3, string_to_vector('[0, 0, 2]'), 'c');
+insert into t_vec values(4, string_to_vector('[-1, 0, 0]'), 'd');
+
+-- echo vector conversion and equality
+select id, vector_to_string(emb) as emb_text from t_vec where emb = string_to_vector('[1,0,0]');
+
+-- echo distance, alias order by and limit
+select id, distance(emb, string_to_vector('[0,0,0]'), euclidean) as dis from t_vec order by dis asc limit 2;
+select id, distance(emb, string_to_vector('[1,0,0]'), 'DOT') as score from t_vec order by score desc limit 2;
+
+-- echo vector index defaults
+create vector index idx_vec on t_vec(emb);
+explain select id, distance(emb, string_to_vector('[0,0,0]'), euclidean) as dis from t_vec order by dis asc limit 2;
+
+-- echo vector index custom options
+create table t_vec_custom(id int, emb vector(2));
+insert into t_vec_custom values(1, string_to_vector('[1.5, -2]'));
+insert into t_vec_custom values(2, string_to_vector('[0, 3]'));
+create vector index idx_vec_custom on t_vec_custom(emb) with (distance=cosine, type=ivfflat, lists=2, probes=1);
+select id from t_vec_custom order by distance(emb, string_to_vector('[1,0]'), cosine) asc limit 1;
