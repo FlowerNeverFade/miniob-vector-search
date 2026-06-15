@@ -710,7 +710,7 @@ class TestSuite:
       line_num = len(lines1)
       for i in range(line_num):
         if lines1[i].upper() != lines2[i].upper():
-          _logger.info('file1=%s, file2=%s, line1=%s, line2=%s', file1, file2, lines1[i], lines2[i])
+          _logger.info('file1=%s, file2=%s, line=%d, line1=%s, line2=%s', file1, file2, i + 1, lines1[i], lines2[i])
           return False
       return True
 
