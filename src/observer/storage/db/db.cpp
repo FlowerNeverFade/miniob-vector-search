@@ -14,7 +14,9 @@ See the Mulan PSL v2 for more details. */
 
 #include "storage/db/db.h"
 
+#include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <sys/stat.h>
 
 #include "common/lang/string.h"
@@ -29,6 +31,26 @@ See the Mulan PSL v2 for more details. */
 #include "storage/clog/integrated_log_replayer.h"
 
 using namespace common;
+
+static RC remove_file_if_exists(const string &file_name)
+{
+  if (file_name.empty()) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  if (0 == remove(file_name.c_str())) {
+    LOG_INFO("Successfully remove file %s.", file_name.c_str());
+    return RC::SUCCESS;
+  }
+
+  if (errno == ENOENT) {
+    LOG_INFO("File does not exist while removing, ignore it. file=%s", file_name.c_str());
+    return RC::SUCCESS;
+  }
+
+  LOG_ERROR("Failed to remove file %s, error:%s", file_name.c_str(), strerror(errno));
+  return RC::FILE_REMOVE;
+}
 
 Db::~Db()
 {
@@ -173,6 +195,50 @@ RC Db::create_table(const char *table_name, span<const AttrInfoSqlNode> attribut
 
   opened_tables_[table_name] = table;
   LOG_INFO("Create table success. table name=%s, table_id:%d", table_name, table_id);
+  return RC::SUCCESS;
+}
+
+RC Db::drop_table(const char *table_name)
+{
+  if (common::is_blank(table_name)) {
+    LOG_WARN("Invalid table name");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  auto iter = opened_tables_.find(table_name);
+  if (iter == opened_tables_.end()) {
+    LOG_WARN("Table does not exist. db=%s, table=%s", name_.c_str(), table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  Table *table = iter->second;
+  const TableMeta &table_meta = table->table_meta();
+
+  vector<string> files_to_remove;
+  files_to_remove.emplace_back(table_meta_file(path_.c_str(), table_meta.name()));
+  files_to_remove.emplace_back(table_data_file(path_.c_str(), table_meta.name()));
+  files_to_remove.emplace_back(table_lob_file(path_.c_str(), table_meta.name()));
+  for (int i = 0; i < table_meta.index_num(); i++) {
+    const IndexMeta *index_meta = table_meta.index(i);
+    if (index_meta != nullptr) {
+      files_to_remove.emplace_back(table_index_file(path_.c_str(), table_meta.name(), index_meta->name()));
+    }
+  }
+
+  opened_tables_.erase(iter);
+  delete table;
+
+  RC rc = RC::SUCCESS;
+  for (const string &file_name : files_to_remove) {
+    rc = remove_file_if_exists(file_name);
+    if (OB_FAIL(rc)) {
+      LOG_ERROR("Failed to remove table file while dropping table. db=%s, table=%s, file=%s, rc=%s",
+          name_.c_str(), table_name, file_name.c_str(), strrc(rc));
+      return rc;
+    }
+  }
+
+  LOG_INFO("Drop table success. table name=%s", table_name);
   return RC::SUCCESS;
 }
 

@@ -195,6 +195,26 @@ body {
   color: var(--accent-primary);
 }
 
+.schema-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.schema-action-btn {
+  padding: 0 !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: unset !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+}
+
 /* Database Explorer */
 .schema-list {
   display: flex;
@@ -362,6 +382,17 @@ body {
 
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  color: var(--accent-danger);
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.45);
 }
 
 .btn:disabled {
@@ -651,5 +682,4 @@ select option {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
 

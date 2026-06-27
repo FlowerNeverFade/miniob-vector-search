@@ -79,9 +79,11 @@ def parse_miniob_output(text):
     if text.startswith("FAILURE >"):
         return {"type": "error", "message": text}
         
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
         return {"type": "empty", "message": "No output from database."}
+    if len(lines) == 1 and lines[0].startswith("Tables_in_"):
+        return {"type": "table", "headers": [lines[0]], "rows": []}
 
     if '|' in lines[0] or (len(lines) > 1 and any('|' in l for l in lines)):
         header_idx = next((i for i, l in enumerate(lines) if '|' in l), 0)
@@ -130,6 +132,42 @@ def calculate_distance(v1, v2, metric):
     elif metric in ('inner_product', 'dot'):
         return sum(x * y for x, y in zip(v1, v2))
     return float('inf')
+
+def extract_table_names(raw_res):
+    """Extract table names from MiniOB SHOW TABLES output."""
+    parsed = parse_miniob_output(raw_res or "")
+    table_names = []
+
+    if parsed.get("type") == "table" and parsed.get("headers"):
+        header_name = parsed["headers"][0]
+        for row in parsed.get("rows", []):
+            table_name = str(row.get(header_name, "")).strip()
+            if re.match(r"^\w+$", table_name):
+                table_names.append(table_name)
+        return table_names
+
+    lines = [line.strip() for line in (raw_res or "").split('\n') if line.strip()]
+    for table_name in lines[1:]:
+        if re.match(r"^\w+$", table_name):
+            table_names.append(table_name)
+    return table_names
+
+def miniob_response_succeeded(raw_res):
+    """Return True when a MiniOB command response represents success."""
+    parsed = parse_miniob_output(raw_res or "")
+    return parsed.get("type") == "success" or (raw_res or "").strip().upper() == "SUCCESS"
+
+def list_table_names():
+    """List current MiniOB tables and normalize connection/parser errors."""
+    raw_res, error = send_sql("show tables;")
+    if error:
+        return None, f"Failed to list tables: {error}"
+
+    parsed = parse_miniob_output(raw_res or "")
+    if parsed.get("type") == "error":
+        return None, f"Failed to list tables: {parsed.get('message', raw_res)}"
+
+    return extract_table_names(raw_res), None
 
 @app.route('/api/query', methods=['POST'])
 def execute_query():
@@ -255,6 +293,7 @@ def execute_query():
             "total_ms": round(total_elapsed_ms, 2)
         }
     })
+
 
 @app.route('/api/tables', methods=['GET'])
 def get_tables_schema():
@@ -417,6 +456,71 @@ def run_benchmark():
         },
         "recall": round(recall, 1),
         "dataset_size": len(valid_vectors)
+    })
+
+@app.route('/api/clear-all', methods=['POST'])
+def clear_all_tables():
+    table_names, error = list_table_names()
+    if error:
+        return jsonify({"success": False, "message": error}), 500
+
+    if not table_names:
+        created_indexes.clear()
+        return jsonify({"success": True, "message": "All tables cleared (database already empty)."})
+
+    dropped = []
+    remaining = table_names
+    last_errors = []
+
+    for _ in range(3):
+        if not remaining:
+            break
+
+        attempted = list(remaining)
+        current_errors = []
+
+        for name in attempted:
+            drop_res, drop_err = send_sql(f"drop table {name};")
+            if drop_err:
+                current_errors.append(f"Failed to drop table {name}: {drop_err}")
+            elif miniob_response_succeeded(drop_res):
+                if name not in dropped:
+                    dropped.append(name)
+            else:
+                parsed = parse_miniob_output(drop_res or "")
+                message = parsed.get("message") or parsed.get("data") or drop_res
+                current_errors.append(f"Failed to drop table {name}: {message}")
+
+        remaining, error = list_table_names()
+        if error:
+            return jsonify({
+                "success": False,
+                "message": error,
+                "dropped": dropped
+            }), 500
+
+        for name in attempted:
+            if name not in remaining and name not in dropped:
+                dropped.append(name)
+
+        last_errors = current_errors
+
+    for name in dropped:
+        created_indexes.pop(name, None)
+
+    if remaining:
+        details = f" Last errors: {'; '.join(last_errors)}" if last_errors else ""
+        return jsonify({
+            "success": False,
+            "message": f"Clear incomplete. Remaining tables: {', '.join(remaining)}.{details}",
+            "dropped": dropped,
+            "remaining": remaining
+        }), 200
+
+    created_indexes.clear()
+    return jsonify({
+        "success": True,
+        "message": f"Successfully dropped all tables: {', '.join(dropped)}"
     })
 
 if __name__ == '__main__':

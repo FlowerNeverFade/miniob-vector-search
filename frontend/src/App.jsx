@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Database, Terminal, Play, HelpCircle, Eye, Sliders, ChevronDown, ChevronRight, Activity, Cpu, BarChart2, Zap } from 'lucide-react';
+import { Database, Terminal, Play, HelpCircle, Eye, Sliders, ChevronDown, ChevronRight, Activity, Cpu, BarChart2, Zap, RefreshCw, Trash2 } from 'lucide-react';
 import VectorVisualization from './VectorVisualization';
 import './index.css';
 
@@ -87,6 +87,7 @@ function App() {
   // SQL console state
   const [sqlQuery, setSqlQuery] = useState("select id, emb, tag from t_vec;");
   const [queryLoading, setQueryLoading] = useState(false);
+  const [clearLoading, setClearLoading] = useState(false);
   const [queryResult, setQueryResult] = useState(null);
   const [queryTiming, setQueryTiming] = useState(null);
   
@@ -146,17 +147,15 @@ function App() {
       if (response.data.success) {
         setIsConnected(true);
         setServerStatus('Connected to MiniOB');
-        setTables(response.data.tables);
+        const nextTables = response.data.tables || [];
+        setTables(nextTables);
         
-        // Auto-select first vector table if none is selected
-        if (!selectedTable && response.data.tables.length > 0) {
-          const firstVecTable = response.data.tables.find(t => t.is_vector);
-          if (firstVecTable) {
-            setSelectedTable(firstVecTable.name);
-          } else {
-            setSelectedTable(response.data.tables[0].name);
-          }
-        }
+        setSelectedTable(prev => {
+          if (nextTables.length === 0) return '';
+          if (prev && nextTables.some(t => t.name === prev)) return prev;
+          const firstVecTable = nextTables.find(t => t.is_vector);
+          return (firstVecTable || nextTables[0]).name;
+        });
       } else {
         setIsConnected(false);
         setServerStatus('Database Error');
@@ -240,6 +239,51 @@ function App() {
       console.error("Error fetching table data:", err);
       setTableData([]);
       setSelectedTableIndexes([]);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm("Are you sure you want to clear all stored data? This will drop all tables in the database!")) {
+      return;
+    }
+
+    setClearLoading(true);
+    setQueryLoading(true);
+    setQueryResult(null);
+    setQueryTiming(null);
+    try {
+      const response = await axios.post(`${API_BASE}/clear-all`);
+      if (response.data.success) {
+        setQueryResult({
+          type: 'success',
+          message: response.data.message
+        });
+      } else {
+        setQueryResult({
+          type: 'error',
+          message: response.data.message
+        });
+      }
+      if (response.data.success) {
+        setTables([]);
+        setSelectedTable('');
+        setExpandedTables({});
+        setTableData([]);
+        setVectorColName('');
+        setSelectedTableIndexes([]);
+        setPlottedTarget(null);
+        setPlottedNeighbors([]);
+        setBenchmarkResult(null);
+      }
+      await checkStatus(); // Refresh schema lists
+    } catch (error) {
+      setQueryResult({
+        type: 'error',
+        message: error.response?.data?.message || error.message || 'Failed to clear database.'
+      });
+    } finally {
+      setClearLoading(false);
+      setQueryLoading(false);
     }
   };
 
@@ -418,14 +462,28 @@ function App() {
                 <Database size={18} className="panel-icon" />
                 Schema Explorer
               </h2>
-              <button 
-                onClick={checkStatus} 
-                className="btn btn-secondary" 
-                style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                title="Refresh Schema"
-              >
-                Refresh
-              </button>
+              <div className="schema-actions">
+                <button
+                  onClick={checkStatus}
+                  className="btn btn-secondary schema-action-btn"
+                  disabled={clearLoading}
+                  title="Refresh Schema"
+                >
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  onClick={handleClearAll}
+                  className="btn btn-danger schema-action-btn"
+                  disabled={clearLoading || queryLoading || !isConnected}
+                  title="Clear all stored data (drop all tables)"
+                >
+                  {clearLoading ? (
+                    <span style={{ display: 'inline-flex', animation: 'spin 1s linear infinite' }}>🔄</span>
+                  ) : (
+                    <Trash2 size={14} />
+                  )}
+                </button>
+              </div>
             </div>
             
             <div className="schema-list">
