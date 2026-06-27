@@ -176,6 +176,64 @@ RC Db::create_table(const char *table_name, span<const AttrInfoSqlNode> attribut
   return RC::SUCCESS;
 }
 
+RC Db::drop_table(const char *table_name)
+{
+  RC rc = RC::SUCCESS;
+  // 检查表是否存在
+  auto iter = opened_tables_.find(table_name);
+  if (iter == opened_tables_.end()) {
+    LOG_WARN("Table %s doesn't exist.", table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  Table *table = iter->second;
+
+  // 先收集所有的文件路径，之后删除Table对象后就不再能访问table
+  vector<string> files_to_remove;
+
+  // 1. 元数据文件
+  files_to_remove.push_back(table_meta_file(path_.c_str(), table_name));
+
+  // 2. 数据文件
+  files_to_remove.push_back(table_data_file(path_.c_str(), table_name));
+
+  // 3. 所有索引文件
+  const TableMeta &table_meta = table->table_meta();
+  for (int i = 0; i < table_meta.index_num(); i++) {
+    const IndexMeta *index_meta = table_meta.index(i);
+    files_to_remove.push_back(table_index_file(path_.c_str(), table_name, index_meta->name()));
+  }
+
+  // 4. LOB文件（如果存在）
+  files_to_remove.push_back(table_lob_file(path_.c_str(), table_name));
+
+  // 从打开的表列表中移除
+  opened_tables_.erase(iter);
+
+  // 删除Table对象，这会触发TableEngine和Index的析构函数，
+  // 从而关闭数据文件和索引文件的BufferPool（关闭文件描述符并从BufferPoolManager中移除）
+  delete table;
+  table = nullptr;
+
+  // 删除物理文件
+  for (const string &file_path : files_to_remove) {
+    error_code ec;
+    if (filesystem::exists(file_path, ec)) {
+      if (!filesystem::remove(file_path, ec)) {
+        LOG_WARN("Failed to remove file: %s, error: %s", file_path.c_str(), ec.message().c_str());
+        rc = RC::IOERR_WRITE;
+      } else {
+        LOG_INFO("Successfully removed file: %s", file_path.c_str());
+      }
+    } else {
+      LOG_TRACE("File not exists, skip removing: %s", file_path.c_str());
+    }
+  }
+
+  LOG_INFO("Drop table success. table name=%s", table_name);
+  return rc;
+}
+
 Table *Db::find_table(const char *table_name) const
 {
   unordered_map<string, Table *>::const_iterator iter = opened_tables_.find(table_name);
