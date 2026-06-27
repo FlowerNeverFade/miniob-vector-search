@@ -137,63 +137,122 @@ def execute_query():
     if not data or 'sql' not in data:
         return jsonify({"success": False, "message": "SQL statement is required."}), 400
     
-    sql = data['sql'].strip()
-    if not sql.endswith(';'):
-        sql += ';'
-        
-    start_time = time.time()
-    raw_res, error = send_sql(sql)
-    elapsed_ms = (time.time() - start_time) * 1000
+    raw_sql = data['sql']
     
-    if error:
-        return jsonify({"success": False, "message": f"Connection error: {error}"}), 500
-        
-    parsed = parse_miniob_output(raw_res)
+    # Split SQL query into multiple statements, avoiding splitting on semicolons inside strings
+    statements = []
+    current_stmt = []
+    in_single_quote = False
+    in_double_quote = False
     
-    # Intercept index creation on success
-    if parsed["type"] == "success" or "SUCCESS" in raw_res:
-        match = re.search(
-            r"create\s+(?:vector\s+)?index\s+(\w+)\s+on\s+(\w+)\s*\(\s*(\w+)\s*\)(?:\s+with\s*\(([^)]+)\))?",
-            sql,
-            re.IGNORECASE
-        )
-        if match:
-            idx_name = match.group(1)
-            tbl_name = match.group(2)
-            col_name = match.group(3)
-            options_str = match.group(4)
+    for char in raw_sql:
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+        elif char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+        
+        if char == ';' and not in_single_quote and not in_double_quote:
+            statements.append(''.join(current_stmt).strip())
+            current_stmt = []
+        else:
+            current_stmt.append(char)
             
-            opts = {}
-            if options_str:
-                for part in options_str.split(','):
-                    if '=' in part:
-                        k, v = part.split('=', 1)
-                        opts[k.strip().lower()] = v.strip().lower()
+    remaining = ''.join(current_stmt).strip()
+    if remaining:
+        statements.append(remaining)
+        
+    statements = [s for s in statements if s]
+    
+    if not statements:
+        return jsonify({"success": False, "message": "No SQL statements found."}), 400
+
+    results = []
+    total_elapsed_ms = 0
+    
+    for idx, stmt in enumerate(statements):
+        stmt_sql = stmt + ';'
+        start_time = time.time()
+        raw_res, error = send_sql(stmt_sql)
+        elapsed_ms = (time.time() - start_time) * 1000
+        total_elapsed_ms += elapsed_ms
+        
+        if error:
+            return jsonify({
+                "success": False,
+                "message": f"Connection error at statement {idx+1} ('{stmt}'): {error}"
+            }), 500
             
-            idx_info = {
-                "name": idx_name,
-                "column": col_name,
-                "type": opts.get("type", "ivfflat"),
-                "distance": opts.get("distance", "euclidean"),
-                "lists": int(opts.get("lists", 2)),
-                "probes": int(opts.get("probes", 1))
-            }
-            if tbl_name not in created_indexes:
-                created_indexes[tbl_name] = []
-            created_indexes[tbl_name] = [x for x in created_indexes[tbl_name] if x["name"] != idx_name]
-            created_indexes[tbl_name].append(idx_info)
+        parsed = parse_miniob_output(raw_res)
+        
+        if parsed["type"] == "error":
+            return jsonify({
+                "success": False,
+                "message": f"Error executing statement {idx+1} ('{stmt}'): {parsed['message']}",
+                "result": parsed,
+                "timing": {
+                    "engine_ms": round(total_elapsed_ms * 0.85, 2),
+                    "network_ms": round(total_elapsed_ms * 0.15, 2),
+                    "total_ms": round(total_elapsed_ms, 2)
+                }
+            }), 200
             
-    # Mock realistic execution/network splits
-    engine_time = round(elapsed_ms * 0.85, 2)
-    network_time = round(elapsed_ms * 0.15, 2)
+        # Intercept index creation on success
+        if parsed["type"] == "success" or "SUCCESS" in raw_res:
+            match = re.search(
+                r"create\s+(?:vector\s+)?index\s+(\w+)\s+on\s+(\w+)\s*\(\s*(\w+)\s*\)(?:\s+with\s*\(([^)]+)\))?",
+                stmt_sql,
+                re.IGNORECASE
+            )
+            if match:
+                idx_name = match.group(1)
+                tbl_name = match.group(2)
+                col_name = match.group(3)
+                options_str = match.group(4)
+                
+                opts = {}
+                if options_str:
+                    for part in options_str.split(','):
+                        if '=' in part:
+                            k, v = part.split('=', 1)
+                            opts[k.strip().lower()] = v.strip().lower()
+                
+                idx_info = {
+                    "name": idx_name,
+                    "column": col_name,
+                    "type": opts.get("type", "ivfflat"),
+                    "distance": opts.get("distance", "euclidean"),
+                    "lists": int(opts.get("lists", 2)),
+                    "probes": int(opts.get("probes", 1))
+                }
+                if tbl_name not in created_indexes:
+                    created_indexes[tbl_name] = []
+                created_indexes[tbl_name] = [x for x in created_indexes[tbl_name] if x["name"] != idx_name]
+                created_indexes[tbl_name].append(idx_info)
+                
+            # Intercept table drop to clean up cached indexes
+            match_drop = re.search(r"drop\s+table\s+(\w+)", stmt_sql, re.IGNORECASE)
+            if match_drop:
+                tbl_name = match_drop.group(1)
+                if tbl_name in created_indexes:
+                    del created_indexes[tbl_name]
+                    
+        results.append(parsed)
+        
+    final_parsed = results[-1]
+    if len(statements) > 1:
+        if final_parsed["type"] == "success":
+            final_parsed["message"] = f"Executed {len(statements)} statements successfully. Last status: {final_parsed['message']}"
+            
+    engine_time = round(total_elapsed_ms * 0.85, 2)
+    network_time = round(total_elapsed_ms * 0.15, 2)
     
     return jsonify({
-        "success": parsed["type"] != "error",
-        "result": parsed,
+        "success": final_parsed["type"] != "error",
+        "result": final_parsed,
         "timing": {
             "engine_ms": engine_time if engine_time > 0 else 0.05,
             "network_ms": network_time if network_time > 0 else 0.02,
-            "total_ms": round(elapsed_ms, 2)
+            "total_ms": round(total_elapsed_ms, 2)
         }
     })
 

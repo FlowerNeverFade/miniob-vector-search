@@ -368,6 +368,9 @@ function App() {
       case 'create':
         sql = "create table t_vec(id int, emb vector(3), tag char);";
         break;
+      case 'drop':
+        sql = "drop table t_vec;";
+        break;
       case 'insert':
         sql = "insert into t_vec values(1, string_to_vector('[1, 0, 0]'), 'a');\ninsert into t_vec values(2, string_to_vector('[3, 0, 0]'), 'b');\ninsert into t_vec values(3, string_to_vector('[6, 0, 0]'), 'c');\ninsert into t_vec values(4, string_to_vector('[-2, 0, 0]'), 'd');";
         break;
@@ -504,6 +507,7 @@ function App() {
               </h2>
               <div className="sql-presets">
                 <button className="preset-btn" onClick={() => loadPreset('create')}>Create Tab</button>
+                <button className="preset-btn" onClick={() => loadPreset('drop')}>Drop Table</button>
                 <button className="preset-btn" onClick={() => loadPreset('insert')}>Insert</button>
                 <button className="preset-btn" onClick={() => loadPreset('index')}>Index</button>
                 <button className="preset-btn" onClick={() => loadPreset('select')}>Select</button>
