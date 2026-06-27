@@ -204,10 +204,17 @@ def get_tables_schema():
         return jsonify({"success": False, "message": f"Connection error: {error}"}), 500
         
     parsed = parse_miniob_output(raw_res)
-    if parsed["type"] == "error" or parsed["type"] != "table":
+    if parsed["type"] == "error":
         return jsonify({"success": False, "message": "Failed to retrieve tables."}), 500
-        
+
     tables_list = []
+    if parsed["type"] != "table":
+        # No tables exist (e.g. after dropping the last table)
+        return jsonify({
+            "success": True,
+            "tables": tables_list
+        })
+
     header_name = parsed["headers"][0]
     for row in parsed["rows"]:
         table_name = row[header_name]
@@ -361,4 +368,4 @@ def run_benchmark():
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)

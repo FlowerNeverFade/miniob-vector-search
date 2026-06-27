@@ -374,14 +374,21 @@ const VectorVisualization = ({ vectors, targetVector, nearestNeighbors, dimX = 0
         }
       },
       legend: {
-        bottom: 5,
-        textStyle: { color: '#94a3b8', fontSize: 10 },
-        itemGap: 10
+        right: 10,
+        top: 'center',
+        orient: 'vertical',
+        type: 'scroll',
+        textStyle: { color: '#94a3b8', fontSize: 9 },
+        itemGap: 6,
+        itemWidth: 12,
+        itemHeight: 8,
+        pageIconSize: 10,
+        pageTextStyle: { color: '#64748b', fontSize: 9 }
       },
       grid: {
         left: '6%',
-        right: '6%',
-        bottom: '16%',
+        right: '18%',
+        bottom: '8%',
         top: '6%',
         containLabel: true
       },

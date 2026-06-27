@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Database, Terminal, Play, HelpCircle, Eye, Sliders, ChevronDown, ChevronRight, Activity, Cpu, BarChart2, Zap } from 'lucide-react';
 import VectorVisualization from './VectorVisualization';
 import './index.css';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = 'http://localhost:5001/api';
 
 // Utility for formatting speedup multiplier
 const round = (num, decimals = 1) => {
@@ -88,6 +88,7 @@ function App() {
   const [sqlQuery, setSqlQuery] = useState("select id, emb, tag from t_vec;");
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryResult, setQueryResult] = useState(null);
+  const [queryResults, setQueryResults] = useState(null);  // for multi-statement
   const [queryTiming, setQueryTiming] = useState(null);
   
   // Table schema accordion state
@@ -140,6 +141,8 @@ function App() {
   const [benchmarkResult, setBenchmarkResult] = useState(null);
 
   // Fetch tables and connection status
+  const initialLoadRef = useRef(true);
+
   const checkStatus = async () => {
     try {
       const response = await axios.get(`${API_BASE}/tables`);
@@ -147,14 +150,17 @@ function App() {
         setIsConnected(true);
         setServerStatus('Connected to MiniOB');
         setTables(response.data.tables);
-        
-        // Auto-select first vector table if none is selected
-        if (!selectedTable && response.data.tables.length > 0) {
-          const firstVecTable = response.data.tables.find(t => t.is_vector);
-          if (firstVecTable) {
-            setSelectedTable(firstVecTable.name);
-          } else {
-            setSelectedTable(response.data.tables[0].name);
+
+        // Auto-select first vector table only on very first load
+        if (initialLoadRef.current && response.data.tables.length > 0) {
+          initialLoadRef.current = false;
+          if (!selectedTable) {
+            const firstVecTable = response.data.tables.find(t => t.is_vector);
+            if (firstVecTable) {
+              setSelectedTable(firstVecTable.name);
+            } else {
+              setSelectedTable(response.data.tables[0].name);
+            }
           }
         }
       } else {
@@ -246,11 +252,69 @@ function App() {
   const handleRunQuery = async (queryText = sqlQuery) => {
     setQueryLoading(true);
     setQueryResult(null);
+    setQueryResults(null);
     setQueryTiming(null);
+
+    // Strip comment lines (-- ...) and block comments (/* ... */)
+    const cleanSql = queryText
+      .replace(/\/\*[\s\S]*?\*\//g, '')    // remove /* ... */
+      .replace(/^--.*$/gm, '')              // remove entire -- comment lines
+      .replace(/--.*$/gm, '');              // remove inline -- comments at end of lines
+
+    // Split by semicolon, filter out empty statements
+    const statements = cleanSql
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    if (statements.length === 0) {
+      setQueryLoading(false);
+      return;
+    }
+
     try {
-      const response = await axios.post(`${API_BASE}/query`, { sql: queryText });
-      setQueryResult(response.data.result);
-      setQueryTiming(response.data.timing || null);
+      if (statements.length === 1) {
+        // Single statement — original behavior
+        const response = await axios.post(`${API_BASE}/query`, { sql: statements[0] });
+        setQueryResult(response.data.result);
+        setQueryTiming(response.data.timing || null);
+      } else {
+        // Multiple statements — execute sequentially
+        const allResults = [];
+        let totalTiming = { total_ms: 0, engine_ms: 0, network_ms: 0 };
+
+        for (let i = 0; i < statements.length; i++) {
+          try {
+            const response = await axios.post(`${API_BASE}/query`, { sql: statements[i] });
+            const data = response.data;
+            allResults.push({
+              index: i + 1,
+              sql: statements[i],
+              result: data.result,
+              timing: data.timing,
+              success: data.success !== false
+            });
+            if (data.timing) {
+              totalTiming.total_ms += data.timing.total_ms || 0;
+              totalTiming.engine_ms += data.timing.engine_ms || 0;
+              totalTiming.network_ms += data.timing.network_ms || 0;
+            }
+          } catch (error) {
+            allResults.push({
+              index: i + 1,
+              sql: statements[i],
+              result: {
+                type: 'error',
+                message: error.response?.data?.message || error.message || 'Unknown error'
+              },
+              timing: null,
+              success: false
+            });
+          }
+        }
+        setQueryResults(allResults);
+        setQueryTiming(totalTiming);
+      }
       checkStatus(); // Refresh schema lists
     } catch (error) {
       setQueryResult({
@@ -388,6 +452,11 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Floating glass orbs */}
+      <div className="orb orb-1"></div>
+      <div className="orb orb-2"></div>
+      <div className="orb orb-3"></div>
+
       {/* Header */}
       <header className="header">
         <div className="logo-container">
@@ -645,26 +714,26 @@ function App() {
                 </div>
               )}
 
-              {!queryLoading && !queryResult && (
+              {!queryLoading && !queryResult && !queryResults && (
                 <div className="no-data-msg">
                   <HelpCircle size={24} className="no-data-icon" />
                   <p>Execute a query to see outputs here.</p>
                 </div>
               )}
 
+              {/* Single statement result */}
               {!queryLoading && queryResult && (
                 <>
-                  {/* Execution Timing display */}
                   {queryTiming && (
-                    <div style={{ 
-                      display: 'grid', 
-                      gridTemplateColumns: 'repeat(3, 1fr)', 
-                      gap: '0.6rem', 
-                      marginBottom: '1rem', 
-                      background: 'rgba(15, 23, 44, 0.6)', 
-                      padding: '0.6rem 0.8rem', 
-                      borderRadius: '10px', 
-                      border: '1px solid rgba(6, 182, 212, 0.25)' 
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: '0.6rem',
+                      marginBottom: '1rem',
+                      background: 'rgba(15, 23, 44, 0.6)',
+                      padding: '0.6rem 0.8rem',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(6, 182, 212, 0.25)'
                     }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid rgba(255, 255, 255, 0.05)' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Engine Time</span>
@@ -734,6 +803,117 @@ function App() {
                       {queryResult.data}
                     </pre>
                   )}
+                </>
+              )}
+
+              {/* Multi-statement results */}
+              {!queryLoading && queryResults && queryResults.length > 0 && (
+                <>
+                  {queryTiming && (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: '0.6rem',
+                      marginBottom: '1rem',
+                      background: 'rgba(15, 23, 44, 0.6)',
+                      padding: '0.6rem 0.8rem',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(6, 182, 212, 0.25)'
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Engine Time</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#60a5fa', fontFamily: 'monospace', marginTop: '0.1rem' }}>
+                          ⚡ {queryTiming.engine_ms} ms
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Network Overhead</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#a78bfa', fontFamily: 'monospace', marginTop: '0.1rem' }}>
+                          📡 {queryTiming.network_ms} ms
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Total Execution</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#10b981', fontFamily: 'monospace', marginTop: '0.1rem' }}>
+                          ⏱ {queryTiming.total_ms} ms ({queryResults.length} statements)
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {queryResults.map((item, idx) => (
+                    <div key={idx} style={{ marginBottom: '1rem', border: '1px solid rgba(6, 182, 212, 0.1)', borderRadius: '10px', flexShrink: 0 }}>
+                      <div style={{
+                        padding: '0.4rem 0.8rem',
+                        background: 'rgba(59, 130, 246, 0.08)',
+                        borderBottom: '1px solid rgba(6, 182, 212, 0.1)',
+                        fontFamily: 'monospace',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-secondary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                      }}>
+                        <span style={{
+                          background: item.success ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                          color: item.success ? '#10b981' : '#ef4444',
+                          padding: '0.05rem 0.4rem',
+                          borderRadius: '4px',
+                          fontWeight: 700,
+                          fontSize: '0.65rem'
+                        }}>
+                          [{item.index}/{queryResults.length}]
+                        </span>
+                        <span style={{ color: '#e2e8f0' }}>{item.sql}</span>
+                      </div>
+                      <div style={{ padding: '0.6rem 0.8rem', background: 'rgba(0,0,0,0.15)' }}>
+                        {item.result.type === 'success' && (
+                          <div className="result-status-card success" style={{ marginBottom: 0 }}>
+                            <span>✓</span>
+                            <span>{item.result.message}</span>
+                          </div>
+                        )}
+                        {item.result.type === 'error' && (
+                          <div className="result-status-card error" style={{ marginBottom: 0 }}>
+                            <span>⚠</span>
+                            <span>{item.result.message}</span>
+                          </div>
+                        )}
+                        {item.result.type === 'table' && (
+                          <div className="table-wrapper" style={{ marginBottom: 0 }}>
+                            <table className="data-table" style={{ tableLayout: 'auto', width: '100%' }}>
+                              <thead>
+                                <tr>
+                                  {item.result.headers.map((h, i) => (
+                                    <th key={i}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {item.result.rows.map((row, rIdx) => (
+                                  <tr key={`${item.index}-${rIdx}`}>
+                                    {item.result.headers.map((h, cIdx) => {
+                                      const val = row[h];
+                                      return (
+                                        <td key={cIdx}>
+                                          {Array.isArray(val) ? <VectorCell val={val} /> : String(val)}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        {item.result.type === 'text' && (
+                          <pre style={{ background: 'rgba(0,0,0,0.2)', padding: '0.6rem', borderRadius: '6px', fontFamily: 'monospace', fontSize: '0.8rem', margin: 0 }}>
+                            {item.result.data}
+                          </pre>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </>
               )}
             </div>

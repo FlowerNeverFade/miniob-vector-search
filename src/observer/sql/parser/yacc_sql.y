@@ -488,7 +488,7 @@ attr_def_list:
     ;
     
 attr_def:
-    ID type LBRACE number RBRACE 
+    ID type LBRACE number RBRACE
     {
       $$ = new AttrInfoSqlNode;
       $$->type = (AttrType)$2;
@@ -501,6 +501,13 @@ attr_def:
       } else {
         $$->length = $4;
       }
+    }
+    | ID type LBRACE RBRACE
+    {
+      $$ = new AttrInfoSqlNode;
+      $$->type = (AttrType)$2;
+      $$->name = $1;
+      $$->length = $$->type == AttrType::VECTORS ? VECTOR_DEFAULT_DIMENSION * VECTOR_ELEMENT_SIZE : 4;
     }
     | ID type
     {
