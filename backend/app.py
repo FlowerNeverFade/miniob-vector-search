@@ -26,6 +26,23 @@ created_indexes = {
     ]
 }
 
+def log_successful_sql(sql, response_text):
+    """Print a concise success marker for demo recording."""
+    response_text = (response_text or "").strip()
+    failed = (
+        response_text == "FAILURE" or
+        response_text.startswith("FAILURE >") or
+        "SQL_SYNTAX" in response_text or
+        "Failed to parse" in response_text
+    )
+    if failed:
+        return
+
+    preview = " ".join((sql or "").strip().split())
+    if len(preview) > 160:
+        preview = preview[:157] + "..."
+    print(f"successful | {preview}", flush=True)
+
 def send_sql(sql):
     """Send SQL to MiniOB and return the raw string response."""
     try:
@@ -47,7 +64,9 @@ def send_sql(sql):
             response += chunk
         
         sock.close()
-        return response.decode('utf-8').strip(), None
+        response_text = response.decode('utf-8').strip()
+        log_successful_sql(sql, response_text)
+        return response_text, None
     except Exception as e:
         return None, str(e)
 

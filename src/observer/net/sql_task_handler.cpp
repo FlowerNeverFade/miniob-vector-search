@@ -13,6 +13,9 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include "net/sql_task_handler.h"
+
+#include <iostream>
+
 #include "net/communicator.h"
 #include "event/session_event.h"
 #include "event/sql_event.h"
@@ -44,6 +47,9 @@ RC SqlTaskHandler::handle_event(Communicator *communicator)
 
   rc = communicator->write_result(event, need_disconnect);
   LOG_INFO("write result return %s", strrc(rc));
+  if (OB_SUCC(rc) && event->sql_result()->return_code() == RC::SUCCESS) {
+    std::cout << "successful | " << event->query() << std::endl;
+  }
   event->session()->set_current_request(nullptr);
   Session::set_current_session(nullptr);
 

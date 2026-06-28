@@ -1,10 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Database, Terminal, Play, HelpCircle, Eye, Sliders, ChevronDown, ChevronRight, Activity, Cpu, BarChart2, Zap, RefreshCw, Trash2 } from 'lucide-react';
+import { Database, Terminal, Play, HelpCircle, Eye, Sliders, ChevronDown, ChevronRight, Activity, Cpu, BarChart2, Zap, RefreshCw, Trash2, Loader2, Sparkles, FolderGit2, CheckCircle2, AlertTriangle, Clock, Wifi, Search, XCircle, Wand2 } from 'lucide-react';
 import VectorVisualization from './VectorVisualization';
 import './index.css';
 
 const API_BASE = 'http://localhost:5000/api';
+const DEFAULT_TARGET_VECTOR = '[0, 0, 0]';
+const TARGET_VECTOR_STORAGE_KEY = 'miniob.targetVector';
+
+const getSavedTargetVector = () => {
+  try {
+    return localStorage.getItem(TARGET_VECTOR_STORAGE_KEY) || DEFAULT_TARGET_VECTOR;
+  } catch {
+    return DEFAULT_TARGET_VECTOR;
+  }
+};
 
 // Utility for formatting speedup multiplier
 const round = (num, decimals = 1) => {
@@ -58,8 +68,8 @@ const SpeedupBar = ({ label, time, isIndexed, maxTime }) => {
   return (
     <div style={{ marginBottom: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.3rem' }}>
-        <span style={{ color: isIndexed ? '#10b981' : '#f97316', fontWeight: 600 }}>
-          {isIndexed ? '⚡ ' : '🐢 '} {label}
+        <span style={{ color: isIndexed ? '#10b981' : '#f97316', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+          {isIndexed ? <Zap size={13} /> : <Search size={13} />} {label}
         </span>
         <span style={{ color: 'var(--text-secondary)' }}>{time.toFixed(2)} ms</span>
       </div>
@@ -106,7 +116,9 @@ function App() {
   const [activeRightTab, setActiveRightTab] = useState('visual'); // 'visual' | 'benchmark'
 
   // Vector Search form state
-  const [searchTargetInput, setSearchTargetInput] = useState('[0, 0, 0]');
+  const initialTargetVectorRef = useRef(getSavedTargetVector());
+  const targetVectorEditedRef = useRef(initialTargetVectorRef.current !== DEFAULT_TARGET_VECTOR);
+  const [searchTargetInput, setSearchTargetInput] = useState(initialTargetVectorRef.current);
   const [searchMetric, setSearchMetric] = useState('euclidean');
   const [searchK, setSearchK] = useState(3);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -139,6 +151,16 @@ function App() {
   // Benchmark State
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [benchmarkResult, setBenchmarkResult] = useState(null);
+
+  const handleTargetVectorChange = (value) => {
+    targetVectorEditedRef.current = true;
+    setSearchTargetInput(value);
+    try {
+      localStorage.setItem(TARGET_VECTOR_STORAGE_KEY, value);
+    } catch {
+      // Ignore storage failures; the current input still stays in React state.
+    }
+  };
 
   // Fetch tables and connection status
   const checkStatus = async () => {
@@ -229,8 +251,15 @@ function App() {
 
         setTableData(formattedData);
         
-        // Set search placeholder according to dimension size
-        setSearchTargetInput(`[${Array(dimensions).fill(0).join(', ')}]`);
+        if (!targetVectorEditedRef.current) {
+          const defaultTarget = `[${Array(dimensions).fill(0).join(', ')}]`;
+          setSearchTargetInput(defaultTarget);
+          try {
+            localStorage.setItem(TARGET_VECTOR_STORAGE_KEY, defaultTarget);
+          } catch {
+            // Ignore storage failures; the current input still stays in React state.
+          }
+        }
       } else {
         setTableData([]);
         setSelectedTableIndexes([]);
@@ -460,7 +489,7 @@ function App() {
             <div className="panel-header">
               <h2 className="panel-title">
                 <Database size={18} className="panel-icon" />
-                Schema Explorer
+                <span>Schema Explorer</span>
               </h2>
               <div className="schema-actions">
                 <button
@@ -478,7 +507,7 @@ function App() {
                   title="Clear all stored data (drop all tables)"
                 >
                   {clearLoading ? (
-                    <span style={{ display: 'inline-flex', animation: 'spin 1s linear infinite' }}>🔄</span>
+                    <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
                   ) : (
                     <Trash2 size={14} />
                   )}
@@ -524,8 +553,8 @@ function App() {
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.2rem' }}>Indexes</div>
                             {table.indexes.map(idx => (
                               <div key={idx.name} className="column-item" style={{ fontSize: '0.75rem', opacity: 0.85, paddingLeft: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.1rem', marginBottom: '0.3rem' }}>
-                                <span className="column-name" style={{ color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                                  <span>🗂</span>
+                                <span className="column-name" style={{ color: '#fbbf24', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                                  <FolderGit2 size={13} />
                                   <strong>{idx.name}</strong>
                                 </span>
                                 <span className="column-type" style={{ fontSize: '0.7rem', color: '#c084fc', fontFamily: 'monospace' }}>
@@ -561,9 +590,12 @@ function App() {
             <div className="panel-header">
               <h2 className="panel-title">
                 <Terminal size={18} className="panel-icon" />
-                SQL Terminal
+                <span>SQL Terminal</span>
               </h2>
-              <div className="sql-presets">
+            </div>
+
+            <div className="sql-console">
+              <div className="sql-presets" style={{ marginBottom: '0.5rem', width: '100%' }}>
                 <button className="preset-btn" onClick={() => loadPreset('create')}>Create Tab</button>
                 <button className="preset-btn" onClick={() => loadPreset('drop')}>Drop Table</button>
                 <button className="preset-btn" onClick={() => loadPreset('insert')}>Insert</button>
@@ -572,15 +604,12 @@ function App() {
                 <button className="preset-btn" onClick={() => loadPreset('search')}>Search</button>
                 <button 
                   className="preset-btn" 
-                  style={{ borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                  style={{ borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc', marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
                   onClick={() => setShowVectorGen(!showVectorGen)}
                 >
-                  🧪 DML Helper
+                  <Wand2 size={13} /> DML Helper
                 </button>
               </div>
-            </div>
-
-            <div className="sql-console">
               {showVectorGen && (
                 <div style={{
                   background: 'rgba(15, 23, 44, 0.6)',
@@ -594,8 +623,8 @@ function App() {
                   animation: 'fadeIn 0.25s ease-out'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      ⚡ Vector Input Generator (DML Helper)
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#c084fc', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <Sparkles size={13} /> Vector Input Generator (DML Helper)
                     </span>
                     <button 
                       className="preset-btn" 
@@ -730,20 +759,20 @@ function App() {
                     }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid rgba(255, 255, 255, 0.05)' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Engine Time</span>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#60a5fa', fontFamily: 'monospace', marginTop: '0.1rem' }}>
-                          ⚡ {queryTiming.engine_ms} ms
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#60a5fa', fontFamily: 'monospace', marginTop: '0.2rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                          <Cpu size={13} /> {queryTiming.engine_ms} ms
                         </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid rgba(255, 255, 255, 0.05)' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Network Overhead</span>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#a78bfa', fontFamily: 'monospace', marginTop: '0.1rem' }}>
-                          📡 {queryTiming.network_ms} ms
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#a78bfa', fontFamily: 'monospace', marginTop: '0.2rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                          <Wifi size={13} /> {queryTiming.network_ms} ms
                         </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Total Execution</span>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#10b981', fontFamily: 'monospace', marginTop: '0.1rem' }}>
-                          ⏱ {queryTiming.total_ms} ms
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#10b981', fontFamily: 'monospace', marginTop: '0.2rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                          <Clock size={13} /> {queryTiming.total_ms} ms
                         </span>
                       </div>
                     </div>
@@ -751,14 +780,14 @@ function App() {
 
                   {queryResult.type === 'success' && (
                     <div className="result-status-card success">
-                      <span>✓</span>
+                      <CheckCircle2 size={16} />
                       <span>{queryResult.message}</span>
                     </div>
                   )}
 
                   {queryResult.type === 'error' && (
                     <div className="result-status-card error">
-                      <span>⚠</span>
+                      <AlertTriangle size={16} />
                       <span>{queryResult.message}</span>
                     </div>
                   )}
@@ -807,44 +836,20 @@ function App() {
           <div className="glass-panel flex-fill">
             
             {/* Tab Selector Header */}
-            <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: '1rem' }}>
+            <div className="tab-container">
               <button 
                 onClick={() => setActiveRightTab('visual')}
-                style={{ 
-                  padding: '0.5rem 1rem', 
-                  background: 'none', 
-                  border: 'none', 
-                  color: activeRightTab === 'visual' ? '#60a5fa' : '#64748b', 
-                  borderBottom: activeRightTab === 'visual' ? '2px solid #3b82f6' : '2px solid transparent', 
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem'
-                }}
+                className={`tab-btn ${activeRightTab === 'visual' ? 'active' : ''}`}
               >
                 <Sliders size={14} />
-                Visualization
+                Visualizer
               </button>
               <button 
                 onClick={() => setActiveRightTab('benchmark')}
-                style={{ 
-                  padding: '0.5rem 1rem', 
-                  background: 'none', 
-                  border: 'none', 
-                  color: activeRightTab === 'benchmark' ? '#60a5fa' : '#64748b', 
-                  borderBottom: activeRightTab === 'benchmark' ? '2px solid #3b82f6' : '2px solid transparent', 
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: '0.85rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem'
-                }}
+                className={`tab-btn ${activeRightTab === 'benchmark' ? 'active' : ''}`}
               >
                 <BarChart2 size={14} />
-                Performance Benchmark
+                Benchmark
               </button>
               
               <select 
@@ -928,7 +933,7 @@ function App() {
                         type="text" 
                         className="form-input" 
                         value={searchTargetInput}
-                        onChange={(e) => setSearchTargetInput(e.target.value)}
+                        onChange={(e) => handleTargetVectorChange(e.target.value)}
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                       />
                     </div>
@@ -995,7 +1000,7 @@ function App() {
                         type="text" 
                         className="form-input" 
                         value={searchTargetInput}
-                        onChange={(e) => setSearchTargetInput(e.target.value)}
+                        onChange={(e) => handleTargetVectorChange(e.target.value)}
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                       />
                     </div>
@@ -1122,7 +1127,9 @@ function App() {
                             const isMatch = benchmarkResult.bruteforce.results.some(x => x.id === res.id);
                             return (
                               <div key={i} style={{ background: isMatch ? 'rgba(16, 185, 129, 0.04)' : 'rgba(239, 68, 68, 0.04)', border: isMatch ? '1px solid rgba(16, 185, 129, 0.12)' : '1px solid rgba(239, 68, 68, 0.12)', padding: '0 0.6rem', height: '36px', boxSizing: 'border-box', borderRadius: '6px', marginBottom: '0.3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                                <span style={{ color: isMatch ? '#34d399' : '#f87171' }}>ID: {res.id} {isMatch ? '✓' : '✗'}</span>
+                                <span style={{ color: isMatch ? '#34d399' : '#f87171', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                                  ID: {res.id} {isMatch ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                                </span>
                                 <span style={{ color: 'var(--text-muted)' }}>{parseFloat(res.distance).toFixed(3)}</span>
                               </div>
                             );
