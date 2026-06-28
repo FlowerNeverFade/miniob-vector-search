@@ -136,11 +136,11 @@ RowRecordPageHandler::~RowRecordPageHandler() at /root/miniob/src/observer/stora
 
     ```
     (gdb) break do_select
-    Breakpoint 1 at 0x44b636: file /home/caizj/source/stunning-engine/src/observer/sql/executor/execute_stage.cpp, line 526.
+    Breakpoint 1 at 0x44b636: file /home/<user>/miniob-vector-search/src/observer/sql/executor/execute_stage.cpp, line 526.
     (gdb) info b
     Num     Type           Disp Enb Address            What
     1       breakpoint     keep y   0x000000000044b636 in ExecuteStage::do_select(char const*, Query*, SessionEvent*)
-                                                       at /home/caizj/source/stunning-engine/src/observer/sql/executor/execute_stage.cpp:526
+                                                       at /home/<user>/miniob-vector-search/src/observer/sql/executor/execute_stage.cpp:526
     ```
 
     ```
@@ -149,12 +149,12 @@ RowRecordPageHandler::~RowRecordPageHandler() at /root/miniob/src/observer/stora
     (gdb) inf b
     Num     Type           Disp Enb Address            What
     1       breakpoint     keep y   0x000000000044b636 in ExecuteStage::do_select(char const*, Query*, SessionEvent*)
-                                                       at /home/caizj/source/stunning-engine/src/observer/sql/executor/execute_stage.cpp:526
+                                                       at /home/<user>/miniob-vector-search/src/observer/sql/executor/execute_stage.cpp:526
     2       breakpoint     keep y   <MULTIPLE>
     2.1                         y     0x000000000050b82b in Table::scan_record(Trx*, ConditionFilter*, int, void*, void (*)(char const*, void*))
-                                                       at /home/caizj/source/stunning-engine/src/observer/storage/common/table.cpp:421
+                                                       at /home/<user>/miniob-vector-search/src/observer/storage/common/table.cpp:421
     2.2                         y     0x000000000050ba00 in Table::scan_record(Trx*, ConditionFilter*, int, void*, RC (*)(Record*, void*))
-                                                       at /home/caizj/source/stunning-engine/src/observer/storage/common/table.cpp:426
+                                                       at /home/<user>/miniob-vector-search/src/observer/storage/common/table.cpp:426
     (gdb)
     ```
 
@@ -174,7 +174,7 @@ RowRecordPageHandler::~RowRecordPageHandler() at /root/miniob/src/observer/stora
     
     Thread 8 "observer" hit Breakpoint 1, ExecuteStage::do_select (this=0x611000000540,
         db=0x6040000005e0 "sys", sql=0x620000023080, session_event=0x608000003d20)
-        at /home/caizj/source/stunning-engine/src/observer/sql/executor/execute_stage.cpp:526
+        at /home/<user>/miniob-vector-search/src/observer/sql/executor/execute_stage.cpp:526
     526	  RC rc = RC::SUCCESS;
     (gdb)
     ```
@@ -198,7 +198,7 @@ RowRecordPageHandler::~RowRecordPageHandler() at /root/miniob/src/observer/stora
     ```
     (gdb) s
     SelectExeNode::execute (this=0x60700002ce80, tuple_set=...)
-        at /home/caizj/source/stunning-engine/src/observer/sql/executor/execution_node.cpp:43
+        at /home/<user>/miniob-vector-search/src/observer/sql/executor/execution_node.cpp:43
     43	  CompositeConditionFilter condition_filter;
     (gdb)
     
@@ -234,7 +234,7 @@ RowRecordPageHandler::~RowRecordPageHandler() at /root/miniob/src/observer/stora
     0x000000000050c2de in Table::scan_record (this=0x60f000007840, trx=0x606000009920,
         filter=0x7f51345f12a0, limit=2147483647, context=0x7f51345f11c0,
         record_reader=0x50b74a <scan_record_reader_adapter(Record*, void*)>)
-        at /home/caizj/source/stunning-engine/src/observer/storage/common/table.cpp:454
+        at /home/<user>/miniob-vector-search/src/observer/storage/common/table.cpp:454
     454	  for ( ; RC::SUCCESS == rc && record_count < limit; rc = scanner.get_next_record(&record)) {
     (gdb)
     ```
@@ -246,7 +246,7 @@ RowRecordPageHandler::~RowRecordPageHandler() at /root/miniob/src/observer/stora
     Run till exit from #0  0x000000000050c2de in Table::scan_record (this=0x60f000007840,
         trx=0x606000009920, filter=0x7f51345f12a0, limit=2147483647, context=0x7f51345f11c0,
         record_reader=0x50b74a <scan_record_reader_adapter(Record*, void*)>)
-        at /home/caizj/source/stunning-engine/src/observer/storage/common/table.cpp:454
+        at /home/<user>/miniob-vector-search/src/observer/storage/common/table.cpp:454
     ```
 
 10. 结束调试
@@ -258,7 +258,7 @@ RowRecordPageHandler::~RowRecordPageHandler() at /root/miniob/src/observer/stora
     	Inferior 1 [process 54699] will be detached.
     
     Quit anyway? (y or n) y
-    Detaching from program: /home/caizj/local/bin/observer, process 54699
+    Detaching from program: /home/<user>/local/bin/observer, process 54699
     [Inferior 1 (process 54699) detached]
     ```
 

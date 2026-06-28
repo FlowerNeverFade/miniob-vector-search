@@ -167,7 +167,7 @@ wsl --install -d Ubuntu-24.04
 
 ```bash
 mkdir -p ~/MiniOB
-cp -r /mnt/d/path/to/miniob-vector-search ~/MiniOB/
+cp -r "/mnt/<drive>/<path-to>/miniob-vector-search" ~/MiniOB/
 cd ~/MiniOB/miniob-vector-search
 ```
 
@@ -175,7 +175,7 @@ cd ~/MiniOB/miniob-vector-search
 
 ```bash
 mkdir -p ~/miniob-course-env
-tar -xzf "/mnt/d/path/to/MiniOB原始环境包.tar.gz" -C ~/miniob-course-env course_env
+tar -xzf "/mnt/<drive>/<path-to>/MiniOB原始环境包.tar.gz" -C ~/miniob-course-env course_env
 sudo apt update
 sudo xargs -a ~/miniob-course-env/course_env/apt-packages.txt apt install -y
 ```
@@ -199,7 +199,7 @@ cd ~/MiniOB/miniob-vector-search/build_debug
 4. 在 Windows PowerShell 中启动 Flask 网关后端。
 
 ```powershell
-cd D:\path\to\miniob-vector-search
+cd <path-to>\miniob-vector-search
 python -m pip install -r backend\requirements.txt
 python backend\app.py
 ```
@@ -207,7 +207,7 @@ python backend\app.py
 5. 在 Windows PowerShell 中启动 React Vite 前端界面。PowerShell 执行策略可能拦截 `npm.ps1`，因此 Windows 下使用 `npm.cmd`。
 
 ```powershell
-cd D:\path\to\miniob-vector-search
+cd <path-to>\miniob-vector-search
 npm.cmd --prefix frontend install
 npm.cmd --prefix frontend run dev
 ```

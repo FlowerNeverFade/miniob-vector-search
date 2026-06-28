@@ -74,9 +74,9 @@ sudo apt install -y net-tools openssh-server
 ![](images/vscode_dev_with_local_virtual_env_setup_vscode_new_remote2.png)
 10. 打开一个新的远程文件夹：
     ![](images/vscode_dev_with_local_virtual_env_setup_vscode_new_file.png)
-11. 选择一个文件夹作为开发文件夹，这里我选择`/home/pingxu/Public/`
+11. 选择一个文件夹作为开发文件夹，例如`/home/<user>/MiniOB/`
 ![](images/vscode_dev_with_local_virtual_env_setup_vscode_workspcae.png)
-进入新的文件夹之后，输入完密码，会问是否信任当前目录什么的，选择`yes`就行了，自此，现在虚拟机安装完毕，工作目录是`/home/pingxu/Public/`。
+进入新的文件夹之后，输入完密码，会问是否信任当前目录什么的，选择`yes`就行了，自此，现在虚拟机安装完毕，工作目录是`/home/<user>/MiniOB/`。
 #### 3. 安装必要软件
 `vscode`中`crtl`+`~`打开终端，直接把下面命令拷贝过去
 ```
