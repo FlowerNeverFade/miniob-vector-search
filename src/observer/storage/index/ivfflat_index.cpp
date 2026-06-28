@@ -266,17 +266,6 @@ vector<RID> IvfflatIndex::ann_search(const vector<float> &base_vector, size_t li
     const int list_id = center_distances[i].second;
     candidates.insert(candidates.end(), buckets_[list_id].begin(), buckets_[list_id].end());
   }
-  if (candidates.size() < entries_.size()) {
-    vector<bool> selected(entries_.size(), false);
-    for (size_t entry_index : candidates) {
-      selected[entry_index] = true;
-    }
-    for (size_t entry_index = 0; entry_index < entries_.size(); entry_index++) {
-      if (!selected[entry_index]) {
-        candidates.push_back(entry_index);
-      }
-    }
-  }
 
   vector<pair<float, size_t>> ranked;
   ranked.reserve(candidates.size());

@@ -92,3 +92,22 @@ ensure:vector_index_scan select id from t_vec_custom order by distance(emb, stri
 select id from t_vec_custom order by distance(emb, string_to_vector('[1,0]'), cosine) asc limit 1;
 ID
 1
+
+VECTOR INDEX PROBES CANDIDATE SCOPE
+create table t_vec_probe(id int, emb vector(2));
+SUCCESS
+insert into t_vec_probe values(1, string_to_vector('[0, 0]'));
+SUCCESS
+insert into t_vec_probe values(2, string_to_vector('[1, 0]'));
+SUCCESS
+insert into t_vec_probe values(3, string_to_vector('[100, 0]'));
+SUCCESS
+insert into t_vec_probe values(4, string_to_vector('[101, 0]'));
+SUCCESS
+create vector index idx_vec_probe on t_vec_probe(emb) with (distance=euclidean, type=ivfflat, lists=2, probes=1);
+SUCCESS
+ensure:vector_index_scan select id from t_vec_probe order by distance(emb, string_to_vector('[0,0]'), euclidean) asc limit 10;
+select id from t_vec_probe order by distance(emb, string_to_vector('[0,0]'), euclidean) asc limit 10;
+ID
+1
+2
