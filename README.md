@@ -1,14 +1,30 @@
-# MiniOB 向量检索后端课程实现
+# MiniOB 向量检索前后端完整演示项目
 
 [![build](https://github.com/FlowerNeverFade/miniob-vector-search-backend/actions/workflows/build-test.yml/badge.svg)](https://github.com/FlowerNeverFade/miniob-vector-search-backend/actions/workflows/build-test.yml)
 
-本仓库是《数据库系统设计实践》课程项目的 MiniOB 后端实现，基于 OceanBase MiniOB `main` 分支扩展向量数据库内核能力。实现范围覆盖实验指导书中的四个任务：向量类型存储、向量距离计算、精确 Top-N 查询与排序、IVF_Flat 近似向量索引。
+本仓库是《数据库系统设计实践》课程项目的完整演示工程，基于 OceanBase MiniOB `main` 分支扩展向量数据库内核能力，并提供 Flask 网关后端与 React Vite 前端控制台。项目既可以作为 MiniOB 向量检索内核实现提交，也可以直接运行成一个可视化演示系统，用于展示建表、插入、向量距离计算、Top-N 检索、IVF_Flat 索引和结果可视化。
+
+项目由三部分组成：
+
+- MiniOB 内核扩展：实现 `VECTOR` 类型、向量函数、排序、Limit、IVF_Flat 索引和 `VECTOR_INDEX_SCAN`。
+- Flask 网关后端：位于 `backend/app.py`，负责把 Web 请求转发到 MiniOB plain 协议端口。
+- React Vite 前端：位于 `frontend/`，提供 SQL 控制台、表结构展示、向量可视化和检索结果对比界面。
 
 上游项目：<https://github.com/oceanbase/miniob>
 
 课程实现基线：`oceanbase/miniob` main 分支 commit `9f856a542decb6dc678650406af7d6e351940dab`。
 
-## 完成状态
+## 项目结构
+
+| 路径 | 说明 |
+| --- | --- |
+| `src/` | MiniOB 向量检索内核实现 |
+| `test/case/test/vector-search.test` | 向量检索专项 SQL 回归用例 |
+| `backend/app.py` | Flask HTTP 网关，连接 MiniOB plain 协议服务 |
+| `frontend/` | React Vite 可视化控制台 |
+| `.github/workflows/build-test.yml` | MiniOB 构建、回归、集成与性能测试 CI |
+
+## 课程任务完成状态
 
 | 任务 | 课程要求 | 当前实现 |
 | --- | --- | --- |
@@ -123,7 +139,7 @@ limit 2;
 | 表与索引维护 | `src/observer/storage/table/table.*`, `src/observer/storage/table/heap_table_engine.*` |
 | 向量回归测试 | `test/case/test/vector-search.test`, `test/case/result/vector-search.result` |
 
-## 构建与运行
+## MiniOB 构建与运行
 
 推荐使用课程资料包中的 WSL2 + Docker / `miniob-course` 环境，或者使用 GitHub Actions 中的 Ubuntu runner 环境。
 
@@ -152,55 +168,73 @@ cd build_debug
 ./bin/observer -f ../etc/observer.ini -P cli
 ```
 
----
+## 运行前后端演示系统
 
-## 运行向量可视化控制台 Web UI
-
-本项目已集成极具美感的 Web 可视化控制台（包含 SQL 终端、向量数据渲染与 2D ECharts 可视化、高性能 K-NN 检索评测对比等）。控制台的运行由以下三个部分协同工作组成：
+前后端演示系统由 MiniOB Observer、Flask 网关后端和 React 前端控制台组成。启动顺序如下。
 
 ### 1. 启动 MiniOB Observer 数据库实例 (WSL2 / Docker)
+
 需要使用 `plain` 文本协议模式启动 MiniOB 实例，以便与后端的 TCP 客户端通信：
+
 ```bash
 cd build_debug
-# 监听 6789 端口，并以 plain 协议启动
 ./bin/observer -f ../etc/observer.ini -p 6789 -P plain
 ```
 
 ### 2. 启动 Flask 网关后端 (WSL2 / Docker)
+
 网关后端负责将前端发出的 HTTP 请求打包成 TCP 数据包与 MiniOB 通信：
+
 1. 进入 backend 目录：
+
    ```bash
    cd backend
    ```
+
 2. 安装依赖（主要为 `Flask` 与 `Flask-CORS`）：
+
    ```bash
    pip install flask flask-cors
    ```
+
 3. 启动 Flask 后端：
+
    ```bash
    python app.py
    ```
+
    后端将在 `http://localhost:5000` 监听。
 
 ### 3. 启动 React Vite 前端控制台 (Windows 主机)
-提供现代化的极简暗黑风可视化操作界面：
+
+前端提供 SQL 终端、表结构查看、向量二维可视化和检索结果对比视图。
+
 1. 进入 frontend 目录：
+
    ```bash
    cd frontend
    ```
+
 2. 安装依赖：
+
    ```bash
    npm install
    ```
+
 3. 启动开发服务器：
+
    ```bash
    npm run dev
    ```
+
 4. 在浏览器中打开本地预览地址：
+
    `http://localhost:5173/`
 
 ### 4. 向量测试 SQL 参考
+
 进入 Web 控制台后，您可以在 SQL Terminal 中执行以下语句来验证向量检索功能：
+
 ```sql
 -- 创建 3 维向量表
 create table t_vec(id int, emb vector(3), tag char);
