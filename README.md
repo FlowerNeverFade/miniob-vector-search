@@ -151,6 +151,8 @@ limit 2;
 
 Linux/WSL 环境最接近课程实验环境，Windows 推荐使用 WSL2 Ubuntu-24.04 构建和启动 MiniOB Observer。
 
+如果使用 GitHub 仓库复现，需要执行 `git submodule update --init --recursive` 拉取 MiniOB 第三方依赖。如果使用课程提交压缩包中的 `程序源代码/miniob-vector-search` 目录复现，压缩包内已经包含 `deps/3rd` 下的依赖源码，且源码目录不包含 `.git`，可以跳过 `git submodule update --init --recursive`，直接从 `bash build.sh init` 开始构建。
+
 ### Windows
 
 1. 安装 WSL2 Ubuntu-24.04。
@@ -161,11 +163,11 @@ wsl --install -d Ubuntu-24.04
 
 如果系统提示重启，请重启后打开 Ubuntu-24.04，按提示创建 Linux 用户名和密码。
 
-2. 在 Ubuntu 中复制仓库并构建 MiniOB。建议放到 Linux 文件系统中构建，避免 Windows/WSL 混用导致换行或文件权限问题。
+2. 在 Ubuntu 中复制仓库或压缩包源码并构建 MiniOB。建议放到 Linux 文件系统中构建，避免 Windows/WSL 混用导致换行或文件权限问题。
 
 ```bash
 mkdir -p ~/MiniOB
-cp -r /mnt/d/shujvku/miniob-vector-search ~/MiniOB/
+cp -r /mnt/d/path/to/miniob-vector-search ~/MiniOB/
 cd ~/MiniOB/miniob-vector-search
 ```
 
@@ -173,14 +175,15 @@ cd ~/MiniOB/miniob-vector-search
 
 ```bash
 mkdir -p ~/miniob-course-env
-tar -xzf "/mnt/d/shujvku/《数据库系统设计实践》课程资料包/MiniOB原始环境包和操作说明/MiniOB原始环境包.tar.gz" -C ~/miniob-course-env course_env
+tar -xzf "/mnt/d/path/to/MiniOB原始环境包.tar.gz" -C ~/miniob-course-env course_env
 sudo apt update
 sudo xargs -a ~/miniob-course-env/course_env/apt-packages.txt apt install -y
 ```
 
-初始化子模块并编译 Debug 版本：
+初始化依赖并编译 Debug 版本：
 
 ```bash
+# GitHub clone 场景需要执行；课程提交压缩包源码已经包含 deps/3rd，可跳过这一行。
 git submodule update --init --recursive
 bash build.sh init
 bash build.sh debug --make -j"$(nproc)"
@@ -196,7 +199,7 @@ cd ~/MiniOB/miniob-vector-search/build_debug
 4. 在 Windows PowerShell 中启动 Flask 网关后端。
 
 ```powershell
-cd D:\shujvku\miniob-vector-search
+cd D:\path\to\miniob-vector-search
 python -m pip install -r backend\requirements.txt
 python backend\app.py
 ```
@@ -204,7 +207,7 @@ python backend\app.py
 5. 在 Windows PowerShell 中启动 React Vite 前端界面。PowerShell 执行策略可能拦截 `npm.ps1`，因此 Windows 下使用 `npm.cmd`。
 
 ```powershell
-cd D:\shujvku\miniob-vector-search
+cd D:\path\to\miniob-vector-search
 npm.cmd --prefix frontend install
 npm.cmd --prefix frontend run dev
 ```
@@ -232,6 +235,7 @@ sudo xargs -a ~/miniob-course-env/course_env/apt-packages.txt apt install -y
 构建 MiniOB：
 
 ```bash
+# GitHub clone 场景需要执行；课程提交压缩包源码已经包含 deps/3rd，可跳过这一行。
 git submodule update --init --recursive
 bash build.sh init
 bash build.sh debug --make -j"$(nproc)"
